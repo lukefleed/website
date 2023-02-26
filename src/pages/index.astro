@@ -1,0 +1,170 @@
+---
+import Layout from "@layouts/Layout.astro";
+import Header from "@components/Header.astro";
+import Footer from "@components/Footer.astro";
+import LinkButton from "@components/LinkButton.astro";
+import Hr from "@components/Hr.astro";
+import Card from "@components/Card";
+import getSortedPosts from "@utils/getSortedPosts";
+import slugify from "@utils/slugify";
+import type { Frontmatter } from "src/types";
+import Socials from "@components/Socials.astro";
+import { SOCIALS } from "@config";
+
+const posts = await Astro.glob<Frontmatter>("../contents/**/*.md");
+
+const sortedPosts = getSortedPosts(posts);
+const featuredPosts = sortedPosts.filter(
+  ({ frontmatter }) => frontmatter.featured
+);
+
+const socialCount = SOCIALS.filter(social => social.active).length;
+---
+
+<Layout>
+  <Header />
+  <main id="main-content">
+    <section id="hero">
+      <h1>About Me <span role="img" aria-label="emoji">🖖</span></h1>
+
+      <p>
+        Hello There! I'm currently attending the last year of the Bachelor
+        Degree in Computational Mathematics at the University of Pisa. I'm also
+        a content editor at <LinkButton href="https://morethantech.it/"
+          >MoreThanTech</LinkButton
+        >, you can read more about it in the editorial activity section. My
+        mathematical and CS interests are
+
+        <ul>
+          <br />
+          <li>📗 Graph Theory</li>
+          <li>📘 Algorithms and Data Structures</li>
+          <li>📕 Numerical Analysis</li>
+          <br />
+        </ul>
+
+        I'm an heavy coder, here you can see my coding hours from the beginning
+        of the year:
+
+        <img
+          src="https://wakatime.com/badge/user/a3116382-7adb-43ba-9490-83130c4b22c5.svg"
+          alt="Coding Hours"
+          class="center"
+        />
+        <br />
+        This are the top 3 languages I use:
+        <ul>
+          <li><br /></li>
+        </ul>
+
+        <img
+          src="https://github-readme-stats.vercel.app/api/top-langs/?username=lukefleed&hide=javascript,html,shell,SCSS,CSS,M,tex,jupyter%20notebook&theme=dracula"
+          alt="Most Used Languages"
+          class="center"
+          width="300"
+        />
+      </p>
+      {
+        // only display if at least one social link is enabled
+        socialCount > 0 && (
+          <div class="social-wrapper">
+            <div class="social-links">Social Links:</div>
+            <Socials />
+          </div>
+        )
+      }
+    </section>
+
+    <Hr />
+
+    {
+      featuredPosts.length > 0 && (
+        <>
+          <section id="featured">
+            <h2>Personal Projects</h2>
+            <ul>
+              {featuredPosts.map(({ frontmatter }) => (
+                <Card
+                  href={`/posts/${slugify(frontmatter)}`}
+                  post={frontmatter}
+                  secHeading={false}
+                />
+              ))}
+            </ul>
+          </section>
+          <Hr />
+        </>
+      )
+    }
+
+    <section id="recent-posts">
+      <h2>Editorial activity</h2>
+      <br />
+      <p>
+        I write cool articles and guides for a tech blog: <LinkButton
+          href="https://morethantech.it/">MoreThanTech</LinkButton
+        >
+      </p>
+
+      <div class="all-posts-btn-wrapper">
+        <LinkButton
+          href="https://morethantech.it/pubblicazioni?author=11_Luca%20Lombardo-"
+        >
+          All my articles
+          <svg xmlns="http://www.w3.org/2000/svg"
+            ><path
+              d="m11.293 17.293 1.414 1.414L19.414 12l-6.707-6.707-1.414 1.414L15.586 11H6v2h9.586z"
+            ></path>
+          </svg>
+        </LinkButton>
+      </div>
+
+      <p>
+        I mostly talk about Linux, Windows, mechanical keyboards and interesting
+        open-source projects. Here you can read everything that I wrote during
+        the last 2 years! Note that it's all in italian. Don't forget to check
+        out all the other articles written by the other authors of the blog!
+      </p>
+    </section>
+  </main>
+
+  <Footer />
+</Layout>
+
+<style>
+  /* ===== Hero Section ===== */
+  #hero {
+    @apply pt-8 pb-6;
+  }
+  #hero h1 {
+    @apply inline-block font-bold my-4 sm:my-8 text-3xl sm:text-5xl;
+  }
+  #hero .rss-link {
+    @apply mb-6;
+  }
+  #hero .rss-icon {
+    @apply h-6 w-6 scale-110 sm:scale-125 mb-2 sm:mb-3 fill-skin-accent;
+  }
+  #hero p {
+    @apply my-2;
+  }
+  .social-wrapper {
+    @apply flex flex-col sm:flex-row sm:items-center mt-4;
+  }
+  .social-links {
+    @apply whitespace-nowrap mr-2 sm:mb-0 mb-1;
+  }
+
+  /* ===== Featured & Recent Posts Sections ===== */
+  #featured,
+  #recent-posts {
+    @apply pt-12 pb-6;
+  }
+  #featured h2,
+  #recent-posts h2 {
+    @apply font-semibold text-2xl tracking-wide;
+  }
+  .all-posts-btn-wrapper {
+    @apply text-center my-8;
+  }
+</style>
