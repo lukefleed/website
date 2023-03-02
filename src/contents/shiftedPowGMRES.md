@@ -13,7 +13,8 @@ ogImage: ""
 description: Implementation of the shifted power method and the shifted GMRES method
 ---
 
-> Report of the project: [view](https://github.com/lukefleed/ShfitedPowGMRES/blob/main/tex/main.pdf) / [download](https://github.com/lukefleed/ShfitedPowGMRES/raw/main/tex/main.pdf)
+- Report of the project: [view](https://github.com/lukefleed/ShfitedPowGMRES/blob/main/tex/main.pdf) / [download](https://github.com/lukefleed/ShfitedPowGMRES/raw/main/tex/main.pdf)
+- GitHub repository: [view](https://github.com/lukefleed/ShfitedPowGMRES)
 
 This repository contains the code of my attempt to replicate the results obtained in `[1]`. The scripts are all written in python and are heavily build around the libraries SciPy and NumPy. To install all the required packages with `pip` run the following command in terminal
 

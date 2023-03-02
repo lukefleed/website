@@ -14,7 +14,7 @@ ogImage: ""
 description: Spatial Networks and small words, an experimental study on real-world datasets. Developed in Python with parallel processing support for the computation of the heaviest functions.
 ---
 
-> Github repository: [link](https://github.com/lukefleed/small-worlds)
+- Github repository: [link](https://github.com/lukefleed/small-worlds)
 
 The present repository showcases the implementation of an experimental examination of the Small-World Networks (SWN) theory. The examination is based on real-world datasets, and the outcomes are presented through a Jupyter Notebook. As there is no corresponding written paper, the notebook serves as the sole source of information regarding the study. It encompasses all relevant theoretical background, details of the experimental design, presentation of results, and derivation of conclusions.
 
