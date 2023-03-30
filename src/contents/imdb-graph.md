@@ -14,7 +14,7 @@ ogImage: ""
 description: An exact and fast algorithm for computing top-k closeness centrality, tested on the IMDb dataset
 ---
 
-The explanation of this algorithm and all it's analysis can be found in the project report: [view](https://github.com/lukefleed/imdb-graph/blob/main/tex/src/main.pdf) / [download](https://github.com/lukefleed/imdb-graph/raw/main/tex/src/main.pdf)
+The explanation of this algorithm and all its analysis can be found in the project report: [view](https://github.com/lukefleed/imdb-graph/blob/main/tex/src/main.pdf) / [download](https://github.com/lukefleed/imdb-graph/raw/main/tex/src/main.pdf)
 
 - Github repository: [imdb-graph](https://github.com/lukefleed/imdb-graph)
 
