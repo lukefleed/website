@@ -26,4 +26,4 @@ Per scaricare il pdf delle slides, cliccare qui: [view](https://github.com/lukef
 
 ---
 
-Seminario tenuto per il corso di _Metodi Numerici per Catene di Markov_  tenuto presso il Dipartimento di Matematica dell'Università di Pisa, nell'anno accademico 2022/2023.
+Seminario per il corso di _Metodi Numerici per Catene di Markov_  tenuto presso il Dipartimento di Matematica dell'Università di Pisa, nell'anno accademico 2022/2023.
