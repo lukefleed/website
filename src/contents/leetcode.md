@@ -13,7 +13,7 @@ ogImage: ""
 description: Solutions to some of the problems I have solved on Leetcode
 ---
 
-Github repository: [leetcode](https://github.com/lukefleed/leetcode)
+Github repository: [leetcode](https://github.com/lukefleed/leetcode-fun)
 
 In this repository you can find my solutions to some of the problems I have solved on Leetcode.
 
