@@ -100,7 +100,7 @@ pip install -r requirements.txt
 
 ### Experimental
 
-There is a repository named `experimental` that contains a number of scripts written in `C++` with the purpose of speeding up the computation of the omega coefficient. The scripts are not used in the project, but they are included for completeness. This scripts are not documented, not tested, and not guaranteed to work. I suggest to ignore them unless you are a C++ enthusiast that loves to read experimental code.
+There is a directory named `experimental` in the repo that contains a number of scripts written in `C++` with the purpose of speeding up the computation of the omega coefficient. The scripts are not used in the project, but they are included for completeness. This scripts _are not documented, not tested, and not guaranteed to work_. I suggest to ignore them unless you are a C++ enthusiast that has time to waste.
 
 ## References
 
