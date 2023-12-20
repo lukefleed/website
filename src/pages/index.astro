@@ -1,4 +1,5 @@
 ---
+import { Astro } from "astro";
 import Layout from "@layouts/Layout.astro";
 import Header from "@components/Header.astro";
 import Footer from "@components/Footer.astro";
@@ -29,27 +30,28 @@ const socialCount = SOCIALS.filter(social => social.active).length;
 
       <p>
         Hello There! I'm currently attending the last year of the Bachelor
-        Degree in Computational Mathematics at the University of Pisa. I'm also
-        a content editor at <LinkButton href="https://morethantech.it/" >MoreThanTech</LinkButton
-        >, you can read more about it in the editorial activity section. My
+        Degree in Computational Mathematics at the University of Pisa. My
         mathematical and CS interests are:
 
         <ul>
           <br />
           <li>📗 Graph Theory</li>
-          <li>📘 Algorithms and Data Structures</li>
+          <li>📘 Algorithms Desing & Engeneering</li>
           <li>📕 Numerical Analysis</li>
           <br />
         </ul>
 
         Here you can see my coding hours from the beginning of the year:
-        <br />
+        <ul>
+          <li><br /></li> <!--- This looks like a stupid way to add space but I am not a web dev so f**k off -->
+        </ul>
         <img
           src="https://wakatime.com/badge/user/a3116382-7adb-43ba-9490-83130c4b22c5.svg"
           alt="Coding Hours"
           class="center"
         />
         <br />
+
         These are my most used languages:
         <ul>
           <li><br /></li>
@@ -99,9 +101,10 @@ const socialCount = SOCIALS.filter(social => social.active).length;
       <h2>Editorial activity</h2>
       <br />
       <p>
-        I write cool articles and guides for a tech blog: <LinkButton
-          href="https://morethantech.it/">MoreThanTech</LinkButton
-        >
+        I used to write cool articles and guides for a tech blog: 
+        <LinkButton href="https://morethantech.it/">
+          <u>MoreThanTech</u>
+        </LinkButton>
       </p>
 
       <div class="all-posts-btn-wrapper">
@@ -118,7 +121,7 @@ const socialCount = SOCIALS.filter(social => social.active).length;
       </div>
 
       <p>
-        I mostly talk about learining Linux, fixing Windows, interesting open-source projects and exotic mechanical keyboards. Here you can read everything that I wrote during the last 2 years! Note that it's all in italian. Don't forget to check out all the other articles written by the other authors of the blog!
+        I mostly talked about learining Linux, fixing Windows, interesting open-source projects and exotic mechanical keyboards. Here you can read everything that I wrote during the last 2 years! Note that it's all in italian. Don't forget to check out all the other articles written by the other authors of the blog!
       </p>
     </section>
 
@@ -142,6 +145,12 @@ const socialCount = SOCIALS.filter(social => social.active).length;
         </ul>
 
         <iframe style="border-radius:12px" src="https://open.spotify.com/embed/playlist/3HY2IxleMr6CDvLW1LgoT0?utm_source=generator" width="100%" height="80" frameBorder="0" allowfullscreen="" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>
+
+        <ul>
+          <li><br /></li>
+        </ul>
+
+        <iframe style="border-radius:12px" src="https://open.spotify.com/embed/playlist/0eMxAInTiwg18OV8XEOpqk?utm_source=generator" width="100%" height="80" frameBorder="0" allowfullscreen="" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>
 
       </p>
     </section>
