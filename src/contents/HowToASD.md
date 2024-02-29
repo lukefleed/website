@@ -19,7 +19,7 @@ Arrays are a collection of values. They are ordered and can be accessed by index
 
 ## HashTable
 
-An HashTable is a data structure that maps keys to values for highly efficient lookup. It is a structure that can be implemented with arrays, linked lists, binary search trees (in this case we would have $O(n \log n)$ lookup time. The advantage of this is potentially using less space, since we no longer allocate a large array. We can also iterate through the keys i order, which can be useful sometimes), or hash tables.
+An HashTable is a data structure that maps keys to values for highly efficient lookup. It is a structure that can be implemented with arrays, linked lists, binary search trees (in this case we would have $O(n \log n)$ lookup time. $x_1$ The advantage of this is potentially using less space, since we no longer allocate a large array. We can also iterate through the keys i order, which can be useful sometimes), or hash tables. $x_1$
 
 ```python
 HashTable = dict()

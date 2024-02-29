@@ -16,6 +16,7 @@
     "astro": "^1.9.2",
     "fuse.js": "^6.6.2",
     "github-slugger": "^2.0.0",
+    "katex": "^0.16.9",
     "remark-collapse": "^0.1.2",
     "remark-toc": "^8.0.1",
     "satori": "^0.0.44",
