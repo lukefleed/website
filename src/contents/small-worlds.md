@@ -9,7 +9,6 @@ tags:
   - Graph Theory
   - Algorithms and Data Structures
   - Python
-  - Centrality Measures
 ogImage: ""
 description: Spatial Networks and small words, an experimental study on real-world datasets. Developed in Python with parallel processing support for the computation of the heaviest functions.
 ---

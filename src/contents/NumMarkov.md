@@ -7,7 +7,7 @@ featured: false
 draft: false
 tags:
   - Numerical Analysis
-  - Markov Chains
+  - Math
 ogImage: ""
 description: Slides for a seminar on the topic of numerical methods for Markov Chains
 ---

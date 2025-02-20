@@ -7,9 +7,6 @@ featured: true
 draft: false
 tags:
   - Graph Theory
-  - Centrality Measures
-  - Cpp
-  - Python
 ogImage: ""
 description: An exact and fast algorithm for computing top-k closeness centrality, tested on the IMDb dataset
 ---
