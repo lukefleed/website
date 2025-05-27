@@ -17,7 +17,7 @@ const { activeNav } = Astro.props;
   <a id="skip-to-content" href="#main-content">Skip to content</a>
   <div class="nav-container">
     <div class="top-nav-wrap">
-      <a href="/" class="logo">
+      <a href="/" class="logo whitespace-nowrap">
         {
           LOGO_IMAGE.enable ? (
             <img
@@ -113,7 +113,7 @@ const { activeNav } = Astro.props;
     @apply max-w-3xl mx-auto flex flex-col sm:flex-row justify-between items-center;
   }
   .top-nav-wrap {
-    @apply relative w-full p-4 sm:py-8 flex justify-between items-start sm:items-center;
+    @apply relative w-full p-4 sm:py-6 flex justify-between items-start sm:items-center;
   }
   .logo {
     @apply absolute sm:static font-semibold text-xl sm:text-2xl py-1;
