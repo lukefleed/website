@@ -78,18 +78,18 @@ const socialCount = SOCIALS.filter(social => social.active).length;
       />
       <br /> -->
 
-      <p>
+      <!-- <p>
         These are my most used languages (most of my Rust code is still private though, so it's not 100% accurate)
       </p>
       <br />
 
       <img
-        src="https://github-readme-stats.vercel.app/api/top-langs/?username=lukefleed&hide=javascript,html,tex,shell,SCSS,CSS,Astro,Matlab,TypeScript,M,jupyter%20notebook&theme=dracula"
+        src="https://github-readme-stats.vercel.app/api/top-langs/?username=lukefleed&hide=javascript,html,tex,shell,SCSS,CSS,Astro,Matlab,Makefile,C,TypeScript,M,Typst,jupyter%20notebook&theme=dracula"
         alt="Most Used Languages"
         class="center"
         width="300"
       />
-      <br />
+      <br /> -->
       {
         // only display if at least one social link is enabled
         socialCount > 0 && (
@@ -198,7 +198,7 @@ const socialCount = SOCIALS.filter(social => social.active).length;
     @apply h-6 w-6 scale-110 sm:scale-125 mb-2 sm:mb-3 fill-skin-accent;
   }
   #hero p {
-    @apply my-2 text-justify;
+    @apply my-2;
   }
   .indented-list {
     @apply ml-6 my-4;
@@ -258,7 +258,6 @@ const socialCount = SOCIALS.filter(social => social.active).length;
   #featured p,
   #editorial p,
   #music p {
-    @apply text-justify;
   }
   .all-posts-btn-wrapper {
     @apply text-center my-8;
