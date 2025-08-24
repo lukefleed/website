@@ -65,31 +65,46 @@ The right-shift `>>` operation moves the bits of the entire `u64` word to the ri
 
 ### Crossing Word Boundaries
 
-The single-word logic we just showed is clean and fast, but it only works as long as `bit_offset + bit_width` is less than or equal to 64. This assumption breaks down as soon as an integer's bit representation needs to cross the boundary from one `u64` word into the next.
+The single-word access logic is fast, but it only works as long as `bit_offset + bit_width <= 64`. This assumption breaks down as soon as an integer's bit representation needs to cross the boundary from one `u64` word into the next. This is guaranteed to happen for any `bit_width` that is not a power of two. For example, with a 10-bit width, the element at `index = 6` starts at bit position 60. Its 10 bits will occupy bits 60-63 of the first word and bits 0-5 of the second. The simple right-shift-and-mask trick fails here.
 
-This is guaranteed to happen for any `bit_width` that isn't a power of two. With a 10-bit width, for example, the element at `index = 6` starts at bit position 60 (`word_index = 0`, `bit_offset = 60`). Its 10 bits will occupy bits 60-63 of the first word and bits 0-5 of the second. The simple right-shift-and-mask trick fails completely here.
+To correctly decode the value, we must read *two* consecutive `u64` words and combine their bits. This splits our `get_unchecked` implementation into two paths. The first is the fast path we've already seen. The second is a new path for spanning values
 
-To correctly decode the value, we have to read *two* consecutive `u64` words from memory and stitching together the parts of our integer.
-
-The logic splits into two paths:
-
-1.  **Fast Path:** The integer is fully contained within a single `u64`. We do one read.
-2.  **Slow Path:** The integer spans two `u64`s. We do two reads, perform some bit-shifting acrobatics, and combine the results.
-
-This turns our `get_unchecked` implementation into something more robust:
+To get the lower bits of the value, we read the first word and shift right, just as before. This leaves the upper bits of the word as garbage.
 
 ```rust
-// A more robust get_unchecked, handling spanning values
-unsafe fn get_unchecked(&self, index: usize) -> u64 {
-    // ... (bit_pos, word_index, bit_offset calculation) ...
+let low_part = *limbs.get_unchecked(word_index) >> bit_offset;
+```
 
-    let limbs = self.limbs.as_ref();
+To get the upper bits of the value, we read the *next* word. The bits we need are at the beginning of this word, so we shift them left to align them correctly.
 
-    if bit_offset + self.bit_width <= 64 {
+```rust
+let high_part = *limbs.get_unchecked(word_index + 1) << (64 - bit_offset);
+```
+
+Finally, we combine the two parts with a bitwise OR and apply the mask to discard any remaining high-order bits from the `high_part`.
+
+```rust
+(low_part | high_part) & self.mask
+```
+
+The line `limbs.get_unchecked(word_index + 1)` introduces a safety concern: if we are reading the last element of the vector, `word_index + 1` could point past the end of our buffer, leading to undefined behavior. To prevent this, our builder must always allocate one extra padding word at the end of the storage. This small memory cost guarantees that any read, even one that spans the final word boundary, will always access valid, allocated memory.
+
+Integrating these two paths gives us our final `get_unchecked` implementation:
+
+```rust
+pub unsafe fn get_unchecked(&self, index: usize) -> u64 {
+    let bit_width = self.bit_width;
+    let bit_pos = index * bit_width;
+    let word_index = bit_pos / 64;
+    let bit_offset = bit_pos % 64;
+
+    let limbs = self.bits.as_ref();
+
+    if bit_offset + bit_width <= 64 {
         // Fast path: value is fully within one word
         (*limbs.get_unchecked(word_index) >> bit_offset) & self.mask
     } else {
-        // Slow path: value spans two words
+        // Slow path: value spans two words.
         let low_part = *limbs.get_unchecked(word_index) >> bit_offset;
         let high_part = *limbs.get_unchecked(word_index + 1) << (64 - bit_offset);
         (low_part | high_part) & self.mask
@@ -97,41 +112,66 @@ unsafe fn get_unchecked(&self, index: usize) -> u64 {
 }
 ```
 
-The line `limbs.get_unchecked(word_index + 1)` introduces a critical safety concern: what if we're trying to read the very last element in our vector, and `word_index + 1` points past the end of our allocated buffer? This would be undefined behavior. To prevent this, we must allocate one extra padding word at the end of the storage. This small memory cost guarantees that any read, even one that spans the final word boundary, will always land in valid, allocated memory.
+### Unaligned Reads for Maximum Performance
 
-### Unaligned Reads
+The `get_unchecked` implementation is correct, but its slow path requires two separate, aligned memory reads to handle spanning values. This involves two potential cache misses and several instructions to combine the results. Modern CPUs, particularly on the x86-64 architecture, are highly optimized for unaligned memory access. A single unaligned read can be significantly faster than two aligned reads. This can lead us to implement a more aggressive optimization for Little-Endian architectures. We can call this method `get_unaligned_unchecked`.
 
-The slow path of our `get_unchecked` implementation requires two separate, aligned memory reads to handle values that span word boundaries. While correct, this is not the most efficient way to access memory. It involves two potential cache misses and requires several instructions to combine the results.
+The strategy is to abandon word-based indexing and instead calculate the exact *byte* address where our data begins. We first convert the bit position to a byte position and a residual bit offset within that byte.
 
-Modern CPUs, particularly on the x86-64 architecture, are highly optimized for unaligned memory access. A single unaligned read is often significantly faster than two aligned reads. This can lead us to a more aggressive optimization `get` function: `get_unaligned_unchecked`. Instead of calculating which *words* to read, we calculate the exact *byte* where our data begins and perform a single `read_unaligned` of a full `W` word from that position.
+```rust
+let bit_pos = index * self.bit_width;
+let byte_pos = bit_pos / 8;
+let bit_rem = bit_pos % 8;
+```
 
-The logic translates the absolute bit position into a byte address and a residual bit offset within that byte.
+Next, we get a raw `*const u8` pointer to our backing storage and advance it by `byte_pos`. From this potentially unaligned address, we perform a single read of a full `W` word.
+
+```rust
+let limbs_ptr = self.as_limbs().as_ptr() as *const u8;
+let word: W = (limbs_ptr.add(byte_pos) as *const W).read_unaligned();
+```
+
+On a Little-Endian system, the resulting `word` now contains our target integer, but it's shifted by `bit_rem` positions. A simple right shift aligns our value to the LSB, and applying the mask isolates it.
+
+```rust
+let extracted_word = word >> bit_rem;
+let final_value = extracted_word & self.mask;
+```
+
+As before, if we guarantee that our backing storage has an extra padding word, this unaligned read will always be safe, even for the last element.
+
+This method is specifically for Little-Endian architectures due to their favorable byte order for this kind of shift-based extraction. The equivalent logic for Big-Endian is more complex, so we fall back to the standard `get_unchecked` implementation on those platforms.
+
+Here is the final, complete method:
 
 ```rust
 pub unsafe fn get_unaligned_unchecked(&self, index: usize) -> T {
-    // ... (for Little-Endian architectures) ...
-    let bit_pos = index * self.bit_width;
-    let byte_pos = bit_pos / 8;
-    let bit_rem = bit_pos % 8;
+    if E::IS_LITTLE {
+        let bits_per_word = <W as Word>::BITS;
+        if self.bit_width == bits_per_word {
+            return self.get_unchecked(index);
+        }
 
-    let limbs_ptr = self.as_limbs().as_ptr() as *const u8;
+        let bit_pos = index * self.bit_width;
+        let byte_pos = bit_pos / 8;
+        let bit_rem = bit_pos % 8;
 
-    // One unaligned read is often faster than two aligned reads.
-    let word: W = (limbs_ptr.add(byte_pos) as *const W).read_unaligned();
+        let limbs_ptr = self.as_limbs().as_ptr() as *const u8;
 
-    // The result is a word where our target is now at the LSB, plus garbage bits.
-    let extracted_word = word >> bit_rem;
+        // Perform an unaligned read from the calculated byte position.
+        let word: W = (limbs_ptr.add(byte_pos) as *const W).read_unaligned();
+        let extracted_word = word >> bit_rem;
 
-    // The mask isolates our final value.
-    Storable::<W>::from_word(extracted_word & self.mask)
+        <T as Storable<W>>::from_word(extracted_word & self.mask)
+    } else {
+        // For Big-Endian, the logic for unaligned reads is complex and
+        // architecture-dependent. Fall back to the standard `get_unchecked`.
+        self.get_unchecked(index)
+    }
 }
 ```
 
-This operation is fast, but it introduces a significant safety concern. An unaligned read near the end of the buffer could attempt to access bytes beyond our allocated memory, resulting in undefined behavior. This is precisely why the `FixedVec` builder guarantees a padding word at the end of its storage. This padding ensures that even the most aggressive unaligned read near the vector's end will always access valid, allocated memory, making the optimization safe.
-
-This optimization is implemented specifically for Little-Endian architectures. On these systems, the byte order allows for a simple right-shift to align the data after an unaligned read. The equivalent logic for Big-Endian is significantly more complex and often less performant than the two-read approach. For this reason, `get_unaligned_unchecked` on Big-Endian architectures falls back to the standard `get_unchecked` implementation.
-
-## The `FixedVec` Architecture
+## The Architecture
 
 Now that we have a solid understanding of the access patterns, we need to think about the overall architecture of this structore. The `FixedVec` must be generic over several parameters that control its memory layout and type interactions:
 
@@ -164,7 +204,7 @@ pub trait Word:
 
 The numeric traits (`UnsignedInt`, `Bounded`, `NumCast`, `ToPrimitive`) are necessary for the arithmetic of offset and mask calculations. The `dsi_bitstream::traits::Word` bound allows us to integrate with its `BitReader` and `BitWriter` implementations, offloading the bitstream logic. `Send` and `Sync` are non-negotiable requirements for any data structure that might be used in a concurrent context. The `IntoAtomic` bound is particularly forward-looking: it establishes a compile-time link between a storage word like `u64` and its atomic counterpart, `AtomicU64`. We will use it later to build a thread safe, atomic version of `FixedVec`. Finally, the `const BITS` associated constant lets us write architecture-agnostic code that correctly adapts to `u32`, `u64`, or `usize` words without `cfg` flags.
 
-### Bridging Types with the `Storable` Trait
+### Bridging Types
 
 With the physical storage layer defined, we need a formal contract to connect it to the user's logical type `T`. We can do this by creating the `Storable` trait, which defines a bidirectional, lossless conversion.
 
@@ -202,7 +242,7 @@ Here, `(self >> 1)` shifts the value back. The term `-(self & 1)` creates a mask
 By encapsulating this logic within the trait system, the main `FixedVec` implementation remains clean and agnostic to the signedness of the data it stores. This is a zero-cost abstraction that provides both safety and specialization at compile time.
 
 
-## Constructing `FixedVec`: The Builder Pattern
+## The Builder Pattern
 
 Once the structure logic is in place, we have to design an ergonomic way to construct it. A simple `new()` function isn't sufficient because the vector's memory layout depends on parameters that must be determined *before* allocation, most critically the `bit_width`. This is a classic scenario for the builder pattern.
 
@@ -269,12 +309,13 @@ We can now benchmark the latency of 1 million random access operations on a vect
 
 Our baseline is the smallest standard `Vec<T>` capable of holding the data (`Vec<u8>` for `bit_width <= 8`, etc.). This provides a direct comparison against the optimal standard library implementation. We also include results from [`sux::BitFieldVec`], [`succinct::IntVector`], and [`simple-sds-sbwt::IntVector`] for context.
 
-{% src/pages/bench-intvec/fixed_random_access_performance.html %}
+<iframe src="/bench-intvec/fixed_random_access_performance.html" width="100%" height="750"></iframe>
 
-We can see that for `bit_width` values below 32, the `get_unaligned_unchecked` of our `FixedVec (Unaligned)` implementation exhibits lower latency than the corresponding `Vec<T>` baseline. This is a result of improved **cache locality**. A 64-byte L1 cache line can hold 64 elements from a `Vec<u8>`. With a `bit_width` of 4, the same cache line holds `(64 * 8) / 4 = 128` elements from our `FixedVec`. This increased data density improves the cache hit rate for random access patterns, and the latency reduction from avoiding DRAM access outweighs the instruction cost of the bitwise extraction. For values of `bit_width` above 32, the performance of `FixedVec` are very slightly worse than the `Vec<T>` baseline, as the cache locality advantage diminishes. However, the memory savings remain.
+We can see that for `bit_width` values below 32, the `get_unaligned_unchecked` of our `FixedVec` is almost always faster than the corresponding `Vec<T>` baseline. This is a result of improved **cache locality**. A 64-byte L1 cache line can hold 64 elements from a `Vec<u8>`. With a `bit_width` of 4, the same cache line holds `(64 * 8) / 4 = 128` elements from our `FixedVec`. This increased data density improves the cache hit rate for random access patterns, and the latency reduction from avoiding DRAM access outweighs the instruction cost of the bitwise extraction. For values of `bit_width` above 32, the performance of `FixedVec` are very slightly worse than the `Vec<T>` baseline, as the cache locality advantage diminishes. However, the memory savings remain.
 
 The performance delta between `get_unaligned_unchecked` and `get_unchecked` also validates the unaligned access strategy. On x86-64, a single `read_unaligned` instruction is more efficient than the two dependent aligned reads required by the logic for spanning words. This results in better instruction pipeline utilization.
 
+We can only see that the only other crate that comes close to our performance is [`sux::BitFieldVec`], by Sebastiano Vigna. The other two crates, [`succinct::IntVector`] and [`simple-sds-sbwt::IntVector`], are significantly slower. Note that the Y-axis is logarithmic.
 
 [`sux::BitFieldVec`]: https://docs.rs/sux/latest/sux/bits/bit_field_vec/index.html
 [`sux-rs`]: https://crates.io/crates/sux
@@ -335,11 +376,11 @@ assert_eq!(vec.get(1), Some(99));
 
 The overhead of this approach is a single read on the proxy's construction and a single write on its destruction, which is an acceptable trade-off for an ergonomic and safe mutable API.
 
-### Zero-Copy Views with `FixedVecSlice`
+### Zero-Copy Views
 
-Beyond single-element mutation, a `Vec`-like API needs to support slicing. Creating a `FixedVec` that borrows its data (`B = &[W]`) is the foundation for this, but we also need a dedicated slice type to represent a sub-region of another `FixedVec` without copying data. For this we can create `FixedVecSlice`.
+A `Vec`-like API needs to support slicing. Creating a `FixedVec` that borrows its data (`B = &[W]`) is the first step for this, but we also need a dedicated slice type to represent a sub-region of another `FixedVec` without copying data. For this we can create `FixedVecSlice`.
 
-The implementation is a classic "fat pointer" struct. It holds a reference to the parent `FixedVec` and a `Range<usize>` that defines the logical boundaries of the view.
+We can implement this as a classic "fat pointer" struct. It holds a reference to the parent `FixedVec` and a `Range<usize>` that defines the logical boundaries of the view.
 
 ```rust
 // A zero-copy view into a contiguous portion of a FixedVec.
@@ -364,11 +405,11 @@ pub unsafe fn get_unchecked(&self, index: usize) -> T {
 }
 ```
 
-This design ensures that there is no code duplication; the slice re-uses the access logic of the parent `FixedVec`.
+In this way there is no code duplication; the slice re-uses the access logic of the parent `FixedVec`.
 
-#### Slicing and Mutability
+### Slicing and Mutability
 
-For mutable slices (`V = &mut FixedVec<...>` ), we can provide mutable access to the slice's elements. The `at_mut` method on `FixedVecSlice` follows the same principle of index translation:
+For mutable slices (`V = &mut FixedVec<...>` ), we can provide mutable access to the slice's elements. We can easily implement the `at_mut` method on `FixedVecSlice` using the same principle of index translation:
 
 ```rust
 pub fn at_mut(&mut self, index: usize) -> Option<MutProxy<'_, T, W, E, B>> {
@@ -380,7 +421,7 @@ pub fn at_mut(&mut self, index: usize) -> Option<MutProxy<'_, T, W, E, B>> {
 }
 ```
 
-A mutable slice borrows the parent `FixedVec` mutably. This means that while the slice exists, the parent vector cannot be accessed directly, upholding Rust's borrowing rules. A critical implementation detail is the `split_at_mut` method, which must produce two non-overlapping mutable slices from a single `&mut self`. This requires careful use of unsafe code to create two `&mut` references from a single one, which is safe only because we can prove to the compiler that the logical ranges they represent (`0..mid` and `mid..len`) are disjoint.
+A mutable slice borrows the parent `FixedVec` mutably. This means that while the slice exists, the parent vector cannot be accessed directly due to Rust's borrowing rules. Let's consider the following situation: we may need to split a mutable slice into two non-overlapping mutable slices. This is common for example in algorithms that operate on sub-regions of an array. However, implementing such a method requires to use some unsafe code. The method, let's say `split_at_mut`, must produce two `&mut` references from a single one. In order to be safe, we must prove to the compiler that the logical ranges they represent (`0..mid` and `mid..len`) are disjoint.
 
 ```rust
 pub fn split_at_mut(&mut self, mid: usize) -> (FixedVecSlice<&mut Self>, FixedVecSlice<&mut Self>) {
@@ -395,21 +436,21 @@ pub fn split_at_mut(&mut self, mid: usize) -> (FixedVecSlice<&mut Self>, FixedVe
 }
 ```
 
-This combination of a generic slice struct and careful pointer manipulation allows us to build a rich, safe, and zero-copy API for both immutable and mutable views, mirroring the flexibility of Rust's native slice
+This combination of a generic slice struct and careful pointer manipulation allows us to build a rich, safe, and zero-copy API for both immutable and mutable views, mirroring Rust's native slice
 
 ## Thread-Safe Concurrent Access
 
 The next step is to extend the `FixedVec` model to support concurrency. Our goal is to create a thread-safe variant, `AtomicFixedVec`, with an API that mirrors the behavior and guarantees of Rust's standard atomic types (`std::sync::atomic::AtomicU64`, etc.). This means providing methods like `load`, `store`, `swap`, and `fetch_add` that can be safely called from multiple threads.
 
-This immediately presents a fundamental problem. Hardware-level atomic instructions operate on machine words: aligned, native-sized integers (`u8`, `u16`, `u32`, `u64`). Our data, however, is not structured this way. A logical element in `FixedVec` is a virtual entity, a sequence of bits that is not necessarily byte-aligned and, more critically, can span the boundary between two separate `u64` words in our backing storage.
+However, there is a fundamental problem. Hardware-level atomic instructions operate on machine words: aligned, native-sized integers (`u8`, `u16`, `u32`, `u64`). Our data, however, is not structured this way. A logical element in `FixedVec` is a virtual entity, a sequence of bits that is not necessarily byte-aligned and, more critically, can span the boundary between two separate `u64` words in our backing storage.
 
 How can we guarantee atomicity for an operation on a 10-bit integer that requires modifying the last 4 bits of one `u64` and the first 6 bits of the next? No single hardware instruction can perform such an operation atomically across two distinct memory locations. A naive implementation would lead to race conditions where one thread could observe a partially-written, corrupted value.
 
 ### Structure
 
-Extending `FixedVec` to support concurrency requires a fundamental shift in its internal design. The first step is to change the backing storage. A `Vec<u64>` is not thread-safe for concurrent writes. We must replace it with a `Vec<AtomicU64>`. This ensures that every individual read and write to a 64-bit word is, at a minimum, atomic.
+To make `FixedVec` support concurrency, we have to make some changes in its internal design. The first step is to change the backing storage. A `Vec<T>` is not thread-safe for concurrent writes. We can replace it with a `Vec<AtomicU64>`. This ensures that every individual read and write to a 64-bit word is, at a minimum, atomic.
 
-However, as we've established, a logical element can span two of these atomic words. A simple `Vec<AtomicU64>` does not solve the problem of atomically updating a value that crosses a word boundary. To handle this, we introduce a second component to our struct: a striped lock pool.
+However, as we've established, a logical element can span two of these atomic words. A simple `Vec<AtomicU64>` does not solve the problem of atomically updating a value that crosses a word boundary. To handle this, we can add a second component to our struct: a striped lock pool. This is a vector of `parking_lot::Mutex` instances, where the number of locks is a power of two. Each lock protects a subset of the `AtomicU64` words in our storage. When an operation needs to modify two adjacent words, it will acquire the appropriate locks to ensure exclusive access. 
 
 We can then define the `AtomicFixedVec` struct as follows:
 
@@ -429,7 +470,7 @@ where
 }
 ```
 
-The `storage` field provides the atomic access at the word level. The `locks` field is an array of `parking_lot::Mutex` instances. This lock pool is the mechanism we will use to enforce atomicity for operations that must modify two adjacent words simultaneously.
+ This lock pool is the mechanism we will use to enforce atomicity for operations that must modify two adjacent words simultaneously.
 
 With this structure in place, we can now design a hybrid concurrency model. Every operation must first determine if the target element is fully contained within a single `AtomicU64` or if it spans two. Based on this, it will dispatch to one of two paths: a high-performance, lock-free path for in-word elements, or a lock-based path that uses our striped lock pool for spanning elements.
 
@@ -440,6 +481,42 @@ The high-throughput path in our hybrid model is for elements that are fully cont
 A CAS operation is an atomic instruction provided by the hardware (e.g., `CMPXCHG` on x86-64) that attempts to write a new value to a memory location only if the current value at that location matches a given expected value. This provides the primitive for building more complex atomic operations without locks.
 
 Let's try to implement an atomic `store` on a sub-word element. We cannot simply write the new value, as that would non-atomically overwrite adjacent elements in the same word. The operation must be a read-modify-write on the entire `AtomicU64`, where the "modify" step only alters the bits corresponding to our target element.
+
+We begin by calculating the `word_index` and `bit_offset`. 
+
+```rust
+let bit_pos = index * self.bit_width;
+let word_index = bit_pos / u64::BITS as usize;
+let bit_offset = bit_pos % u64::BITS as usize;
+```
+
+We then prepare a `store_mask` to isolate the target bit range and a `store_value` with the new value already shifted into position. 
+
+```rust
+let store_mask = self.mask << bit_offset;
+let store_value = value << bit_offset;
+```
+
+The core of the operation is the loop. We first perform a relaxed load to get the current state of the entire 64-bit word. Inside the loop, we compute `new_word` by using the mask to clear the target bits in our local copy (`old_word`) and then OR in the new value.
+
+```rust
+let atomic_word_ref = &self.storage[word_index];
+let mut old_word = atomic_word_ref.load(Ordering::Relaxed);
+loop {
+    let new_word = (old_word & !store_mask) | store_value;
+    match atomic_word_ref.compare_exchange_weak(
+        old_word,
+        new_word,
+        order,
+        Ordering::Relaxed,
+    ) {
+        Ok(_) => break,
+        Err(x) => old_word = x,
+    }
+}
+```
+
+The critical instruction is `compare_exchange_weak`. It attempts to atomically replace the value at `atomic_word_ref` with `new_word`, but only if its current value is still equal to `old_word`. If another thread has modified the word in the meantime, the operation fails, returns the now-current value, and our loop continues with the updated `old_word`. We use the `weak` variant because it can be more performant on some architectures and is perfectly suitable within a retry loop. Putting everything together, we obtain the following `atomic_store` implementation for the lock-free path:
 
 ```rust
 fn atomic_store(&self, index: usize, value: u64, order: Ordering) {
@@ -466,19 +543,17 @@ fn atomic_store(&self, index: usize, value: u64, order: Ordering) {
     }
 ```
 
-We begin by calculating the `word_index` and `bit_offset`. We then prepare a `store_mask` to isolate the target bit range and a `store_value` with the new value already shifted into position. The core of the operation is the loop. We first perform a relaxed load to get the current state of the entire 64-bit word. Inside the loop, we compute `new_word` by using the mask to clear the target bits in our local copy (`old_word`) and then OR in the new value.
-
-The critical instruction is `compare_exchange_weak`. It attempts to atomically replace the value at `atomic_word_ref` with `new_word`, but only if its current value is still equal to `old_word`. If another thread has modified the word in the meantime, the operation fails, returns the now-current value, and our loop continues with the updated `old_word`. We use the `weak` variant because it can be more performant on some architectures and is perfectly suitable within a retry loop.
-
 This entire path is lock-free. Contention is managed at the hardware level by the CPU's cache coherency protocol, which ensures that only one core can successfully commit a CAS operation to a given cache line at a time. 
 
 In the same way, we can implement other atomic operations like `atomic_rmw` (for `fetch_add`, `fetch_sub`, etc.) and `atomic_load` using similar CAS loops or direct atomic loads.
 
 ### Lock-Based Path for Spanning Elements
 
-When an element crosses a word boundary (`bit_offset + bit_width > 64`), the lock-free CAS loop is no longer a viable strategy. An atomic update now requires modifying two separate `AtomicU64` words, and no single hardware instruction can do this as one indivisible transaction. To ensure atomicity, we must use a lock.
+Now let's move to the more complex case when an element spans two `AtomicU64` words. Here the lock-free CAS loop is no longer enough. An atomic update would require to modify two separate `AtomicU64` words, and no single hardware instruction can do this as one indivisible transaction. To ensure atomicity, we must use a lock.
 
-A single, global `Mutex` would serialize all concurrent writes, becoming an unacceptable performance bottleneck. We instead employ **lock striping**, a technique that partitions the lock coverage to reduce contention. `AtomicFixedVec` maintains a `Vec<parking_lot::Mutex<()>>` where the number of locks is a power of two, determined at construction time by a simple heuristic:
+A single, global `Mutex` would serialize all concurrent writes, becoming an unacceptable performance bottleneck.  We can instead employ **lock striping**, a concurrency pattern that partitions the data structure to reduce the scope of contention. The core idea is to maintain an array of locks, and map different regions of our data to different locks. We can add to our `AtomicFixedVec` a `Vec<parking_lot::Mutex<()>>`. To perform an operation on a spanning element that touches `word_index` and `word_index + 1`, a thread first acquires a specific lock from this pool. The mapping is done by hashing the word index to a lock index. Since the number of locks is a power of two, we can use a fast bitwise AND for this mapping instead of a slower modulo operation: `let lock_index = word_index & (self.locks.len() - 1)`.
+
+In this way we are partitioning the vector into a set of independent regions. A locked write to words `(i, i+1)` will not block a simultaneous locked write to words `(j, j+1)` or a lock-free write to word `k`, provided they map to different locks in the stripe. We now need a heuristic to determine, at construction time, how many locks to create. Ideally we would like to balance contention reduction against memory overhead. This could be a valuable option:
 
 ```rust
 // Heuristic to determine the number of locks for striping.
@@ -491,11 +566,53 @@ let num_locks = (target_locks.max(num_cores) * 2)
 
 The logic aims to create enough locks to service the available hardware threads (`num_cores`) and to cover the data with a reasonable density (one lock per 64 words, `WORDS_PER_LOCK`). We take the maximum of these two, multiply by two as a simple overprovisioning factor, and round up to the next power of two to enable fast mapping via bitwise AND. The total number of locks is capped to prevent excessive memory consumption for the lock vector itself.
 
-To perform an operation on a spanning element that touches `word_index` and `word_index + 1`, a thread acquires a lock by mapping the word index to a lock index. We use a fast bitwise AND for this mapping instead of a slower modulo operation: `let lock_index = word_index & (self.locks.len() - 1)`.
+**In this the best way?** I don't know. For instance, a *seqlock* could theoretically offer higher performance for read-heavy workloads. A writer would increment a version counter, perform the non-atomic two-word write, and increment it again. Readers would check for a consistent version number to validate that their read was not interrupted. However, this pattern is fundamentally incompatible with Rust's safety guarantees. A reader in a seqlock might observe a "torn read" (a state where one word has been updated but the other has not). This constitutes a data race, which safe Rust's memory model is designed to prevent. A correct seqlock implementation requires a ton of `unsafe` code, volatile reads, and careful memory fencing. Given this constrains (and that I am not an expert in lock-free programming), we can stick to the simpler yet performant implementation bases on `Mutex`. At least, power of two `bit_width` values can avoid the spanning case entirely.
 
-We can then partition the vector into a set of independent regions. A locked write to words `(i, i+1)` will not block a simultaneous locked write to words `(j, j+1)` or a lock-free write to word `k`, provided they map to different locks in the stripe. This maintains a high degree of parallelism. While one could theoretically design a more complex scheme where a lock protects a specific *pair* of words, implementing such a system with dynamic lock allocation and management in safe Rust would be an exercise in extreme complexity, likely involving raw pointers and manual memory management, for questionable performance gains. The striped array is a pragmatic and robust solution.
+With the lock striping mechanism cleared, we can now complete the implementation for our `atomic_store` method. The first step is to acquire the correct lock.
 
-We can update the `atomic_store` function to include this lock-based path:
+```rust
+// ... inside atomic_store, in the `else` block ...
+let lock_index = word_index & (self.locks.len() - 1);
+let _guard = self.locks[lock_index].lock();
+```
+
+Once the lock is acquired, we have exclusive access for this two-word transaction. However, it's critical that we continue to use atomic operations to modify the words themselves. This is because another thread might be concurrently executing a *lock-free* operation on an adjacent, non-spanning element that happens to reside in `word_index` or `word_index + 1`. Using non-atomic writes inside the lock would create a data race with those lock-free operations.
+
+We therefore use `fetch_update`, another CAS-based atomic, to modify each of the two words. For the lower word, we clear the high bits starting from our `bit_offset` and OR in the low bits of our new value.
+
+```rust
+// ... inside the lock guard ...
+let low_word_ref = &self.storage[word_index];
+let high_word_ref = &self.storage[word_index + 1];
+
+// Modify the lower word.
+low_word_ref
+    .fetch_update(order, Ordering::Relaxed, |mut w| {
+        w &= !(u64::MAX << bit_offset);
+        w |= value << bit_offset;
+        Some(w)
+    })
+    .unwrap(); // This unwrap is safe: with the lock held, there is no contention.
+```
+
+Next, we do the same for the higher word, calculating a `high_mask` to clear the low bits and writing the remaining high bits of our value.
+
+```rust
+// ... continuing inside the lock guard ...
+let bits_in_high = (bit_offset + self.bit_width) - u64::BITS as usize;
+let high_mask = (1u64 << bits_in_high).wrapping_sub(1);
+high_word_ref
+    .fetch_update(order, Ordering::Relaxed, |mut w| {
+        w &= !high_mask;
+        w |= value >> (u64::BITS as usize - bit_offset);
+        Some(w)
+    })
+    .unwrap(); // Also safe.
+```
+
+The lock provides the mutual exclusion that makes the two-word update appear atomic as a whole. The continued use of atomics with the user-specified `Ordering` ensures that the final result is correctly propagated through the memory system and becomes visible to other threads according to the Rust memory model.
+
+Putting it all together, the final, complete `atomic_store` method handles both the lock-free and locked paths.
 
 ```rust
 fn atomic_store(&self, index: usize, value: u64, order: Ordering) {
@@ -555,8 +672,4 @@ fn atomic_store(&self, index: usize, value: u64, order: Ordering) {
 }
 ```
 
-Once the lock is acquired, we have exclusive access for this two-word transaction. However, it's critical that we continue to use atomic operations like `fetch_update` to modify the words themselves. This is because another thread might be concurrently executing a *lock-free* operation on an adjacent, non-spanning element that happens to reside in `word_index` or `word_index + 1`. Using non-atomic writes inside the lock would create a data race with these lock-free operations.
-
-Inside the critical section, we perform two separate atomic updates. For the lower word, we use `fetch_update` to clear the high bits and write the low bits of our value. We do the same for the higher word, calculating the `high_mask` to clear the low bits and writing the high bits of our value. The `unwrap()` calls are safe because, with the lock held, there can be no contention, so the update closure will never need to be retried and will never return `None`.
-
-The lock provides the mutual exclusion that makes the two-word update appear atomic as a whole, while the continued use of atomics and the specified `Ordering` ensures that the final result is correctly propagated through the memory system and becomes visible to other threads according to the Rust memory model.
+The branching logic `if bit_offset + self.bit_width <= 64` is a simple, constant-time check that determines which path to take. The condition is highly predictable for the CPU's branch predictor, as the `bit_offset` follows a simple arithmetic progression based on the index. This minimizes pipeline stalls. More importantly, this structure enables significant compiler optimization. When we use `AtomicFixedVec` with a `bit_width` that is a power of two, the branch condition can often be resolved at compile time. With Link-Time Optimization (LTO), the compiler can prove that the `else` branch for the locked path is unreachable. This allows for dead code elimination, producing a specialized function containing *only* the lock-free CAS loop.
