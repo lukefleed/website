@@ -734,7 +734,7 @@ match atomic_word_ref.compare_exchange_weak(old_word, new_word, success, failure
 
 If the `compare_exchange_weak` succeeds, it means no other thread modified the 64-bit word between our initial `load` and this instruction. Our update is successful. If it fails, another thread (possibly operating on an *adjacent* element in the same word) has modified the word. We update our local `old_word` with the new value from memory and retry the entire loop.
 
-#### The Locked Path: A Transactional Update
+#### The Locked Path
 
 For elements that span two words, we need to use the lock striping mechanism to ensure the operation is transactional. First, we must acquire the appropriate lock, giving us exclusive access to the two-word region.
 
