@@ -725,11 +725,10 @@ If the check succeeds, we proceed to the atomic write phase. We prepare a `new_w
 
 ```rust
 // ... continuing the loop ...
-    let new_word = (old_word & !store_mask) | new_value_shifted;
-    match atomic_word_ref.compare_exchange_weak(old_word, new_word, success, failure) {
-        Ok(_) => return Ok(current),
-        Err(x) => old_word = x,
-    }
+let new_word = (old_word & !store_mask) | new_value_shifted;
+match atomic_word_ref.compare_exchange_weak(old_word, new_word, success, failure) {
+    Ok(_) => return Ok(current),
+    Err(x) => old_word = x,
 }
 ```
 
