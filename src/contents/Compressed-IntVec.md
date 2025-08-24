@@ -309,7 +309,7 @@ We can now benchmark the latency of 1 million random access operations on a vect
 
 Our baseline is the smallest standard `Vec<T>` capable of holding the data (`Vec<u8>` for `bit_width <= 8`, etc.). This provides a direct comparison against the optimal standard library implementation. We also include results from [`sux::BitFieldVec`], [`succinct::IntVector`], and [`simple-sds-sbwt::IntVector`] for context.
 
-<iframe src="/bench-intvec/fixed_random_access_performance.html" width="100%" height="750"></iframe>
+<iframe src="/bench-intvec/fixed_random_access_performance.html" width="100%" height="550px" style="border: none;"></iframe>
 
 We can see that for `bit_width` values below 32, the `get_unaligned_unchecked` of our `FixedVec` is almost always faster than the corresponding `Vec<T>` baseline. This is a result of improved **cache locality**. A 64-byte L1 cache line can hold 64 elements from a `Vec<u8>`. With a `bit_width` of 4, the same cache line holds `(64 * 8) / 4 = 128` elements from our `FixedVec`. This increased data density improves the cache hit rate for random access patterns, and the latency reduction from avoiding DRAM access outweighs the instruction cost of the bitwise extraction. For values of `bit_width` above 32, the performance of `FixedVec` are very slightly worse than the `Vec<T>` baseline, as the cache locality advantage diminishes. However, the memory savings remain.
 
@@ -438,7 +438,7 @@ pub fn split_at_mut(&mut self, mid: usize) -> (FixedVecSlice<&mut Self>, FixedVe
 
 This combination of a generic slice struct and careful pointer manipulation allows us to build a rich, safe, and zero-copy API for both immutable and mutable views, mirroring Rust's native slice
 
-## Thread-Safe Concurrent Access
+# Thread-Safe Concurrent Access
 
 The next step is to extend the `FixedVec` model to support concurrency. Our goal is to create a thread-safe variant, `AtomicFixedVec`, with an API that mirrors the behavior and guarantees of Rust's standard atomic types (`std::sync::atomic::AtomicU64`, etc.). This means providing methods like `load`, `store`, `swap`, and `fetch_add` that can be safely called from multiple threads.
 
@@ -571,7 +571,6 @@ The logic aims to create enough locks to service the available hardware threads 
 With the lock striping mechanism cleared, we can now complete the implementation for our `atomic_store` method. The first step is to acquire the correct lock.
 
 ```rust
-// ... inside atomic_store, in the `else` block ...
 let lock_index = word_index & (self.locks.len() - 1);
 let _guard = self.locks[lock_index].lock();
 ```
@@ -581,7 +580,6 @@ Once the lock is acquired, we have exclusive access for this two-word transactio
 We therefore use `fetch_update`, another CAS-based atomic, to modify each of the two words. For the lower word, we clear the high bits starting from our `bit_offset` and OR in the low bits of our new value.
 
 ```rust
-// ... inside the lock guard ...
 let low_word_ref = &self.storage[word_index];
 let high_word_ref = &self.storage[word_index + 1];
 
@@ -598,7 +596,6 @@ low_word_ref
 Next, we do the same for the higher word, calculating a `high_mask` to clear the low bits and writing the remaining high bits of our value.
 
 ```rust
-// ... continuing inside the lock guard ...
 let bits_in_high = (bit_offset + self.bit_width) - u64::BITS as usize;
 let high_mask = (1u64 << bits_in_high).wrapping_sub(1);
 high_word_ref
