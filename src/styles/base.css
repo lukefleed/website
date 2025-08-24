@@ -65,7 +65,9 @@
     prose-code:!text-skin-base prose-code:p-1 prose-code:rounded
     prose-code:after:!content-[''] prose-code:before:!content-['']
     prose-strong:!text-skin-base prose-table:text-skin-base
-    prose-pre:!text-skin-base
+    prose-pre:!text-skin-base prose-pre:overflow-x-auto prose-pre:whitespace-pre
+    prose-pre:bg-skin-card prose-pre:bg-opacity-75 prose-pre:p-4 prose-pre:rounded-lg
+    prose-pre:border prose-pre:border-skin-line prose-pre:border-opacity-50
     prose-hr:!border-skin-line prose-li:marker:!text-skin-accent
     prose-blockquote:!border-l-skin-accent prose-blockquote:border-opacity-50;
   }
@@ -97,22 +99,34 @@
 
   /* width */
   ::-webkit-scrollbar {
-    @apply w-3;
+    width: 8px;
+    height: 8px;
   }
 
   /* Track */
   ::-webkit-scrollbar-track {
-    @apply bg-skin-fill;
+    background: transparent;
+    border-radius: 10px;
   }
 
   /* Handle */
   ::-webkit-scrollbar-thumb {
-    @apply bg-skin-card;
+    background: rgba(var(--color-text-base), 0.3);
+    border-radius: 10px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+    transition: all 0.2s ease;
   }
 
   /* Handle on hover */
   ::-webkit-scrollbar-thumb:hover {
-    @apply bg-skin-card-muted;
+    background: rgba(var(--color-accent), 0.6);
+    transform: scale(1.1);
+  }
+
+  /* Corner */
+  ::-webkit-scrollbar-corner {
+    background: transparent;
   }
 }
 
@@ -123,6 +137,34 @@
   .focus-outline {
     @apply outline-offset-1 outline-skin-fill outline-2 focus-visible:outline-dashed focus-visible:no-underline;
   }
+}
+
+/* ===== Code block improvements ===== */
+.prose pre {
+  overflow-x: auto;
+  white-space: pre;
+  word-wrap: normal;
+  max-width: 100%;
+}
+
+.prose pre code {
+  white-space: pre;
+  word-break: normal;
+  word-wrap: normal;
+  display: inline-block;
+  min-width: 100%;
+}
+
+.prose code {
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+/* For inline code, allow breaking */
+.prose p code, 
+.prose li code {
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .center {
