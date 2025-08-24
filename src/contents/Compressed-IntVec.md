@@ -1,6 +1,6 @@
 ---
 author: Luca Lombardo
-datetime: 2025-02-20
+datetime: 2025-08-24
 title: Engineering a Fixed-Width bit-packed Integer Vector in Rust
 slug: compressed-intvec
 featured: true
@@ -26,7 +26,7 @@ Only 3 bits are necessary to represent the value, leaving 61 bits as zero-paddin
 
 The canonical solution is bit packing, which aligns data end-to-end in a contiguous bitstream. However, this optimization has historically come at the cost of random access performance. The O(1) access guarantee of `Vec<T>` is predicated on simple pointer arithmetic: `address = base_address + index * std::mem::size_of::<T>()`. Tightly packing the bits invalidates this direct address calculation, seemingly forcing a trade-off between memory footprint and access latency.
 
-This raises the central question that this post aims to answer: is it possible to design a data structure that decouples its memory layout from the static size of `T`, adapting instead to the data's true dynamic range, without sacrificing the O(1) random access that makes `Vec<T>` so effective?
+This raises the central question that with this post we aim to answer: is it possible to design a data structure that decouples its memory layout from the static size of `T`, adapting instead to the data's true dynamic range, without sacrificing the O(1) random access that makes `Vec<T>` so effective?
 
 ## Fixed-width bit packing with arithmetic indexing
 
