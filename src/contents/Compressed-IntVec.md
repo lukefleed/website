@@ -670,3 +670,185 @@ fn atomic_store(&self, index: usize, value: u64, order: Ordering) {
 ```
 
 The branching logic `if bit_offset + self.bit_width <= 64` is a simple, constant-time check that determines which path to take. The condition is highly predictable for the CPU's branch predictor, as the `bit_offset` follows a simple arithmetic progression based on the index. This minimizes pipeline stalls. More importantly, this structure enables significant compiler optimization. When we use `AtomicFixedVec` with a `bit_width` that is a power of two, the branch condition can often be resolved at compile time. With Link-Time Optimization (LTO), the compiler can prove that the `else` branch for the locked path is unreachable. This allows for dead code elimination, producing a specialized function containing *only* the lock-free CAS loop.
+
+### Read-Modify-Write Operations
+
+With the hybrid atomicity model defined, the next step is to build a robust API. Instead of re-implementing the complex hybrid logic for every atomic operation, we can implement it once in a single, powerful primitive: `compare_exchange`. All other Read-Modify-Write (RMW) operations can then be built on top of this primitive.
+
+`compare_exchange` attempts to store a `new` value into a location if and only if the value currently at that location matches an expected `current` value. This operation is the fundamental building block for lock-free algorithms.
+
+#### The Lock-Free Path: A CAS Loop on a Sub-Word
+
+For elements that are fully contained within a single `AtomicU64`, we can implement `compare_exchange` with a CAS loop. However, the logic is more complex than a simple store. We aren't comparing the entire 64-bit word; we are comparing a specific `bit_width` slice within it.
+
+The process is as follows. First, we load the entire 64-bit word. Then, we extract the specific bits that correspond to our logical element and compare them against the user-provided `current` value.
+
+```rust
+// Inside the lock-free path of atomic_compare_exchange
+let mut old_word = atomic_word_ref.load(failure);
+loop {
+    let old_val_extracted = (old_word >> bit_offset) & self.mask;
+    if old_val_extracted != current {
+        return Err(old_val_extracted);
+    }
+    // ...
+```
+
+If this check fails, it means another thread has modified the element since our initial load. We can immediately return an `Err` with the value we just read, satisfying the contract of `compare_exchange`.
+
+If the check succeeds, we proceed to the atomic write phase. We prepare a `new_word` by masking and ORing in the `new` value, just as we did for `atomic_store`. Then we attempt the hardware-level `compare_exchange_weak`.
+
+```rust
+// ... continuing the loop ...
+    let new_word = (old_word & !store_mask) | new_value_shifted;
+    match atomic_word_ref.compare_exchange_weak(old_word, new_word, success, failure) {
+        Ok(_) => return Ok(current),
+        Err(x) => old_word = x,
+    }
+}
+```
+
+If the `compare_exchange_weak` succeeds, it means no other thread modified the 64-bit word between our initial `load` and this instruction. Our update is successful. If it fails, another thread (possibly operating on an *adjacent* element in the same word) has modified the word. We update our local `old_word` with the new value from memory and retry the entire loop.
+
+#### The Locked Path: A Transactional Update
+
+For elements that span two words, we need to use the lock striping mechanism to ensure the operation is transactional. First, we must acquire the appropriate lock, giving us exclusive access to the two-word region.
+
+Once the lock is held, the logic is straightforward:
+
+1.  **Read:** We perform an atomic read of the spanning value. This is itself a locked operation to ensure we get a consistent view.
+2.  **Compare:** We compare this value against the user-provided `current`. If they don't match, we release the lock and immediately return `Err`.
+3.  **Write:** If they do match, we call our existing `atomic_store` method to write the `new` value. `atomic_store` will re-acquire the same lock to perform its two-word write.
+4.  **Return:** We release the lock and return `Ok`.
+
+Because the entire read-compare-write sequence is protected by the same mutex, we guarantee that no other thread can interfere. Combining these two paths gives us the complete `atomic_compare_exchange` method, which can then be used to implement all other atomic operations in terms of it.
+
+```rust
+fn atomic_compare_exchange(
+    &self,
+    index: usize,
+    current: u64,
+    new: u64,
+    success: Ordering,
+    failure: Ordering,
+) -> Result<u64, u64> {
+    let bit_pos = index * self.bit_width;
+    let word_index = bit_pos / u64::BITS as usize;
+    let bit_offset = bit_pos % u64::BITS as usize;
+
+    if bit_offset + self.bit_width <= u64::BITS as usize {
+        // Lock-free path
+        let atomic_word_ref = &self.storage[word_index];
+        let store_mask = self.mask << bit_offset;
+        let new_value_shifted = new << bit_offset;
+        let mut old_word = atomic_word_ref.load(failure);
+        loop {
+            let old_val_extracted = (old_word >> bit_offset) & self.mask;
+            if old_val_extracted != current {
+                return Err(old_val_extracted);
+            }
+            let new_word = (old_word & !store_mask) | new_value_shifted;
+            match atomic_word_ref.compare_exchange_weak(old_word, new_word, success, failure) {
+                Ok(_) => return Ok(current),
+                Err(x) => old_word = x,
+            }
+        }
+    } else {
+        // Locked path
+        let lock_index = word_index & (self.locks.len() - 1);
+        let _guard = self.locks[lock_index].lock();
+        let old_val = self.atomic_load(index, failure);
+        if old_val != current {
+            return Err(old_val);
+        }
+        self.atomic_store(index, new, success);
+        Ok(current)
+    }
+}
+```
+With `atomic_compare_exchange` providing the core atomicity primitive, we can now construct the high-level Read-Modify-Write (RMW) API. All RMW operations, such as `fetch_add` or `fetch_max`, share an identical algorithmic structure: a loop that repeatedly reads a value, computes a new value, and attempts to commit it with `compare_exchange`. Re-implementing this loop for every operation would be redundant.
+
+Instead, we can abstract this pattern into a single generic method, `atomic_rmw`, that is parameterized not just over values, but over the *operation itself*. This is where Rust generics and closures come into play. The signature of `atomic_rmw` can be defined as follows:
+
+```rust
+fn atomic_rmw<F>(&self, index: usize, val: T, order: Ordering, op: F) -> T
+where
+    F: Fn(T, T) -> T
+{
+    // ... implementation ...
+}
+```
+*Note: The actual implementation uses `impl Fn(...)` for a more ergonomic syntax, but the principle is the same.*
+
+The `op` parameter is a generic type `F` constrained by the `Fn(T, T) -> T` trait. This means `op` can be any closure (or function pointer) that takes two values of our logical type `T` and returns a new `T`. This allows us to inject any binary operation—addition, bitwise AND, max, etc. directly into the RMW logic.
+
+To implement `atomic_rmw`, we begin with a relaxed load to get an initial `current` value. Inside the loop, it invokes the `op` closure with the `current` value and the user-provided `val` to compute the `new` value.
+
+```rust
+let mut current = self.load(index, Ordering::Relaxed);
+loop {
+    let new = op(current, val);
+    // ...
+```
+
+The core of the loop is the call to `atomic_compare_exchange`. This attempts to commit the transaction.
+
+```rust
+match self.compare_exchange(index, current, new, order, Ordering::Relaxed) {
+    Ok(old) => return old,
+    Err(actual) => current = actual,
+}
+```
+
+If the operation succeeds, we return the old value, satisfying the RMW contract. If it fails due to contention, `compare_exchange` returns the `actual` value now in memory. We update our local `current` and the loop repeats, re-applying the `op` closure on the newer value. The complete `atomic_rmw` method looks like this:
+
+```rust
+fn atomic_rmw(&self, index: usize, val: T, order: Ordering, op: impl Fn(T, T) -> T) -> T {
+    let mut current = self.load(index, Ordering::Relaxed);
+    loop {
+        let new = op(current, val);
+        match self.compare_exchange(index, current, new, order, Ordering::Relaxed) {
+            Ok(old) => return old,
+            Err(actual) => current = actual,
+        }
+    }
+}
+```
+
+By parameterizing over the operation, we have completely decoupled the complex, low-level concurrency logic from the simple arithmetic or bitwise logic of each specific RMW operation. This allows the compiler to monomorphize and inline the `op` closure for each call site, resulting in highly specialized and efficient machine code for each RMW variant, giving us a zero-cost abstraction.
+
+Now implementing specific RMW methods becomes a straightforward exercise in composition. Each specific operation is now a simple non-looping wrapper that calls `atomic_rmw` and provides a closure defining the desired computation. For example, `fetch_add` is implemented by passing a closure that performs a wrapping addition.
+
+```rust
+pub fn fetch_add(&self, index: usize, val: T, order: Ordering) -> T {
+    self.atomic_rmw(index, val, order, |a, b| a.wrapping_add(&b))
+}
+```
+
+The same pattern applies to all other RMW operations. A bitwise `fetch_and` provides a closure with the `&` operator, and `fetch_max` provides one that calls the `max` method.
+
+```rust
+pub fn fetch_sub(&self, index: usize, val: T, order: Ordering) -> T {
+    self.atomic_rmw(index, val, order, |a, b| a.wrapping_sub(&b))
+}
+
+pub fn fetch_and(&self, index: usize, val: T, order: Ordering) -> T {
+    self.atomic_rmw(index, val, order, |a, b| a & b)
+}
+
+pub fn fetch_or(&self, index: usize, val: T, order: Ordering) -> T {
+    self.atomic_rmw(index, val, order, |a, b| a | b)
+}
+
+pub fn fetch_xor(&self, index: usize, val: T, order: Ordering) -> T {
+    self.atomic_rmw(index, val, order, |a, b| a ^ b)
+}
+
+pub fn fetch_max(&self, index: usize, val: T, order: Ordering) -> T {
+    self.atomic_rmw(index, val, order, |a, b| a.max(b))
+}
+
+pub fn fetch_min(&self, index: usize, val: T, order: Ordering) -> T {
+    self.atomic_rmw(index, val, order, |a, b| a.min(b))
+}
+```
