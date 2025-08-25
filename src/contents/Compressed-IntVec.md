@@ -276,9 +276,9 @@ Where:
 
 In this way, the compiler monomorphizes the struct and its methods for each concrete instantiation (e.g., `FixedVec<i16, u64, LE, Vec<u64>>`), resulting in specialized code with no runtime overhead from the generic abstractions.
 
-### Abstracting the storage word
+### The `Word` Trait
 
-The first step is to abstract the physical storage layer. The `W` parameter cannot be just any unsigned integer; it needs a specific set of capabilities. We can define these requirements in the `Word` trait.
+The first step is to abstract the physical storage layer. The `W` parameter must be a primitive unsigned integer type that supports bitwise operations. We can define a `Word` trait that captures these requirements:
 
 ```rust
 pub trait Word:
@@ -291,7 +291,7 @@ pub trait Word:
 
 The numeric traits (`UnsignedInt`, `Bounded`, `NumCast`, `ToPrimitive`) are necessary for the arithmetic of offset and mask calculations. The `dsi_bitstream::traits::Word` bound allows us to integrate with its `BitReader` and `BitWriter` implementations, offloading the bitstream logic. `Send` and `Sync` are non-negotiable requirements for any data structure that might be used in a concurrent context. The `IntoAtomic` bound is particularly forward-looking: it establishes a compile-time link between a storage word like `u64` and its atomic counterpart, `AtomicU64`. We will use it later to build a thread safe, atomic version of `FixedVec`. Finally, the `const BITS` associated constant lets us write architecture-agnostic code that correctly adapts to `u32`, `u64`, or `usize` words without `cfg` flags.
 
-### Bridging Types
+### The `Storable` Trait
 
 With the physical storage layer defined, we need a formal contract to connect it to the user's logical type `T`. We can do this by creating the `Storable` trait, which defines a bidirectional, lossless conversion.
 
@@ -302,7 +302,7 @@ pub trait Storable<W: Word>: Sized + Copy {
 }
 ```
 
-For unsigned types, the implementation is a direct cast. For signed types, however, we must map the `iN` domain to the `uN` domain required for bit-packing. A simple two's complement bitcast is unsuitable, as `i64(-1)` would become `u64::MAX`, a value requiring the maximum number of bits.
+For unsigned types, the implementation is a direct cast. For signed types, however, we must map the `iN` domain to the `uN` domain required for bit-packing. A simple two's complement bitcast is unsuitable, as `i64(-1)` would become `u64::MAX`, a value requiring the maximum number of bits. We need a better mapping that preserves small absolute values.
 
 We can use **ZigZag encoding**, which maps integers with small absolute values to small unsigned integers. This is implemented via the `ToNat` and `ToInt` traits from `dsi-bitstream`. The core encoding logic in `to_nat` is:
 
@@ -326,12 +326,12 @@ fn to_int(self) -> Self::SignedInt {
 
 Here, `(self >> 1)` shifts the value back. The term `-(self & 1)` creates a mask from the LSB (the original sign bit). In two's complement, this becomes `0` for even numbers (originally positive) and `-1` (all ones) for odd numbers (originally negative). The final XOR with this mask correctly restores the original two's complement representation.
 
-By encapsulating this logic within the trait system, the main `FixedVec` implementation remains clean and agnostic to the signedness of the data it stores. This is a zero-cost abstraction that provides both safety and specialization at compile time.
-
+With this logic within the trait system, the main `FixedVec` implementation remains clean and agnostic to the signedness of the data it stores. 
 
 ## The Builder Pattern
 
 Once the structure logic is in place, we have to design an ergonomic way to construct it. A simple `new()` function isn't sufficient because the vector's memory layout depends on parameters that must be determined *before* allocation, most critically the `bit_width`. This is a classic scenario for a builder pattern.
+
 
 The central problem is that the optimal `bit_width` often depends on the data itself. We need a mechanism to specify the *strategy* for determining this width. We can create the `BitWidth` enum:
 
@@ -343,7 +343,15 @@ pub enum BitWidth {
 }
 ```
 
-This enum decouples the user's intent from the implementation details. `Minimal` signals a desire for maximum space efficiency, requiring an initial pass over the data to find the maximum value. `PowerOfTwo` signals a preference for a layout that might be more performant for certain operations, again requiring a data scan. `Explicit(n)` is the escape hatch for when the `bit_width` is known ahead of time, allowing us to skip the data scan entirely.
+
+
+With this enum, the user can choose between three strategies:
+
+- `Minimal`: The builder scans the input data to find the maximum value, then calculates the minimum number of bits required to represent it. This is the most space-efficient option but requires a full pass over the data.
+- `PowerOfTwo`: Similar to `Minimal`, but rounds the bit width up to the next power of two. This can simplify certain bitwise operations and align better with hardware word sizes, at the cost of some additional space.
+- `Explicit(n)`: The user provides a fixed bit width. This avoids the data scan but requires the user to ensure that all values fit within the specified width.
+
+> **Note:** _Yes, I could have also made three different build functions: `new_with_minimal_bit_width()`, `new_with_power_of_two_bit_width()`, and `new_with_explicit_bit_width(n)`. However, this would lead to a combinatorial explosion if we later wanted to add more configuration options. The builder pattern scales better._
 
 With this, the `FixedVecBuilder` could be designed as a state machine. It holds the chosen `BitWidth` strategy. The final `build()` method takes the input slice and executes the appropriate logic.
 
