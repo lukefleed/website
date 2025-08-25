@@ -260,7 +260,6 @@ pub struct FixedVec<T: Storable<W>, W: Word, E: Endianness, B: AsRef<[W]> = Vec<
     bit_width: usize,
     mask: W,
     len: usize,
-    _phantom: PhantomData<(T, W, E)>,
 }
 ```
 
@@ -351,7 +350,7 @@ With this enum, the user can choose between three strategies:
 - `PowerOfTwo`: Similar to `Minimal`, but rounds the bit width up to the next power of two. This can simplify certain bitwise operations and align better with hardware word sizes, at the cost of some additional space.
 - `Explicit(n)`: The user provides a fixed bit width. This avoids the data scan but requires the user to ensure that all values fit within the specified width.
 
-> **Note:** _Yes, I could have also made three different build functions: `new_with_minimal_bit_width()`, `new_with_power_of_two_bit_width()`, and `new_with_explicit_bit_width(n)`. However, this would lead to a combinatorial explosion if we later wanted to add more configuration options. The builder pattern scales better._
+> **Note:** Yes, I could have also made three different build functions: `new_with_minimal_bit_width()`, `new_with_power_of_two_bit_width()`, and `new_with_explicit_bit_width(n)`. However, this would lead to a combinatorial explosion if we later wanted to add more configuration options. The builder pattern scales better.
 
 With this, the `FixedVecBuilder` could be designed as a state machine. It holds the chosen `BitWidth` strategy. The final `build()` method takes the input slice and executes the appropriate logic.
 
@@ -395,8 +394,7 @@ let vec_pow2: UFixedVec<u32> = FixedVec::builder()
 assert_eq!(vec_pow2.bit_width(), 16);
 ```
 
-
-
+> `UFixedVec<T>` is a type alias for `FixedVec<T, u64, LE, Vec<u64>>`, the most common instantiation.
 
 
 # Doing more than just reading
@@ -535,13 +533,12 @@ where
     T: Storable<u64>,
 {
     // The backing store is now composed of atomic words.
-    pub(crate) storage: Vec<AtomicU64>,
+    storage: Vec<AtomicU64>,
     // A pool of fine-grained locks to protect spanning-word operations.
     locks: Vec<Mutex<()>>,
     bit_width: usize,
     mask: u64,
     len: usize,
-    _phantom: PhantomData<T>,
 }
 ```
 
@@ -641,7 +638,7 @@ let num_locks = (target_locks.max(num_cores) * 2)
 
 The logic aims to create enough locks to service the available hardware threads (`num_cores`) and to cover the data with a reasonable density (one lock per 64 words, `WORDS_PER_LOCK`). We take the maximum of these two, multiply by two as a simple overprovisioning factor, and round up to the next power of two to enable fast mapping via bitwise AND. The total number of locks is capped to prevent excessive memory consumption for the lock vector itself.
 
-**In this the best way?** I don't know. For instance, a *seqlock* could theoretically offer higher performance for read-heavy workloads. A writer would increment a version counter, perform the non-atomic two-word write, and increment it again. Readers would check for a consistent version number to validate that their read was not interrupted. However, this pattern is fundamentally incompatible with Rust's safety guarantees. A reader in a seqlock might observe a "torn read" (a state where one word has been updated but the other has not). This constitutes a data race, which safe Rust's memory model is designed to prevent. A correct seqlock implementation requires a ton of `unsafe` code, volatile reads, and careful memory fencing. Given this constrains (and that I am not an expert in lock-free programming), we can stick to the simpler yet performant implementation bases on `Mutex`. At least, power of two `bit_width` values can avoid the spanning case entirely.
+> **In this the best way?** I don't know, probably not. For instance, a *seqlock* could theoretically offer higher performance for read-heavy workloads. A writer would increment a version counter, perform the non-atomic two-word write, and increment it again. Readers would check for a consistent version number to validate that their read was not interrupted. However, this pattern is fundamentally incompatible with Rust's safety guarantees. A reader in a seqlock might observe a "torn read" (a state where one word has been updated but the other has not). This constitutes a data race, which safe Rust's memory model is designed to prevent. A correct seqlock implementation requires a ton of `unsafe` code, volatile reads, and careful memory fencing. Given this constrains (and that I am not an expert in lock-free programming), we can stick to the simpler yet performant implementation bases on `Mutex`. At least, power of two `bit_width` values can avoid the spanning case entirely.
 
 With the lock striping mechanism cleared, we can now complete the implementation for our `atomic_store` method. The first step is to acquire the correct lock.
 
@@ -745,6 +742,34 @@ fn atomic_store(&self, index: usize, value: u64, order: Ordering) {
 ```
 
 The branching logic `if bit_offset + self.bit_width <= 64` is a simple, constant-time check that determines which path to take. The condition is highly predictable for the CPU's branch predictor, as the `bit_offset` follows a simple arithmetic progression based on the index. This minimizes pipeline stalls. More importantly, this structure enables significant compiler optimization. When we use `AtomicFixedVec` with a `bit_width` that is a power of two, the branch condition can often be resolved at compile time. With Link-Time Optimization (LTO), the compiler can prove that the `else` branch for the locked path is unreachable. This allows for dead code elimination, producing a specialized function containing *only* the lock-free CAS loop.
+
+#### Benchmarking the `store` operation
+
+We now want to measure the performance of our `atomic_store` implementation under concurred load. We want to know how the throughput of the `store` operation scales as we increase thread count and contention. We can create two benchmark scenarios, one with a bit-width that is a power of two, and one with a non-power-of-two bit-width. Both simulate "diffuse contention": a pool of threads performs a high volume of atomic `store` operations to random indices within a shared vector of 10k 64-bit elements. Each thread is assigned 100k operations. This randomness ensures that while direct contention on the same element is rare, there will be frequent collisions on the same `AtomicU64` words, especially as thread count increases.
+
+In the benchmark, each thread with `thread_id` simply writes its own ID to the vector for each operation:
+
+```rust
+vec[index].store(thread_id, Ordering::SeqCst);
+```
+
+We compare our `AtomicFixedVec` against two other implementations:
+1.  A `Vec<AtomicU16>`: This serves as our "ideal" baseline.
+2.  [`sux::AtomicBitFieldVec`]: A similar implementation of another library. This comparison however is not perfectly equivalent for bit-widths that are not powers of two. As per their documentation, `sux` does not guarantee atomicity for values that span word boundaries, which can lead to "torn writes." Our `AtomicFixedVec` is designed to prevent this class of data race through its lock striping mechanism. The performance cost of this correctness guarantee is precisely what we aim to measure.
+
+The first benchmark measure the performance of our **lock-free path**. We configure all vectors with a `bit_width` of 16. Because 16 is a power of two and evenly divides the 64-bit word size, every element is guaranteed to be fully contained within a single `u64` word. This is the best-case scenario for bit-packed atomics. It ensures that all `store` operations can be performed with lock-free CAS loops.
+
+<iframe src="/bench-intvec/atomic_scaling_lock_free_diffuse.html" width="100%" height="550px" style="border: none;"></iframe>
+
+As we can see, all three implementations scale well with increasing thread count. The throughput of `AtomicFixedVec` is very close to that of `sux::AtomicBitFieldVec`, which is expected since both are using similar lock-free CAS loops for this scenario. Both bit-packed vectors have a noticeable dip at two threads, likely due to initial cache coherency overhead, but then scale up effectively with the core count.
+
+The second benchmark tries to stress the **locked path**. We configure the vectors with a `bit_width` of 15. This non-power-of-two width guarantees that a predictable fraction of writes will cross word boundaries. In our case, `(15 + 63) % 64` spanning cases out of 64 offsets, so roughly `14/64` or ~22% will require locking. This forces our `AtomicFixedVec` to use its lock striping mechanism for those spanning writes. In contrast, `sux` will proceed without locking, risking data races but avoiding locking overhead. 
+
+<iframe src="/bench-intvec/atomic_scaling_locked_path_diffuse.html" width="100%" height="550px" style="border: none;"></iframe>
+
+This benchmark shows the real cost of correctness. Our `AtomicFixedVec` now shows lower throughput and poorer scaling compared to both the baseline and `sux`. Every write operation that crosses a word boundary (approximately 22% of them in this test) must acquire a lock, execute its two atomic updates, and release the lock. While with lock striping we prevent a single point of serialization, the overhead of the locking protocol itself, especially under contention from multiple threads, is non-trivial. In contrast, `sux` maintains higher throughput by avoiding locks entirely, but at the cost of potentially observing torn writes.
+
+[`sux::AtomicBitFieldVec`]: https://docs.rs/sux/latest/sux/bits/bit_field_vec/struct.AtomicBitFieldVec.html
 
 ### Read-Modify-Write Operations
 
