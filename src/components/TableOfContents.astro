@@ -1,0 +1,71 @@
+---
+import type { MarkdownHeading } from 'astro';
+
+interface Props {
+  headings: MarkdownHeading[];
+}
+
+const { headings } = Astro.props;
+
+// Filter headings to show headings from H1 to H4 (depth 1 to 4)
+const filteredHeadings = headings.filter((heading) => heading.depth <= 4);
+---
+
+{
+  filteredHeadings.length > 0 && (
+    <nav class="table-of-contents">
+      <h2 class="toc-title">Table of Contents</h2>
+      <ul class="toc-list">
+        {filteredHeadings.map((heading) => (
+          <li class={`toc-item depth-${heading.depth}`}>
+            <a href={`#${heading.slug}`} class="toc-link">
+              {heading.text}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  )
+}
+
+<style>
+  .table-of-contents {
+    @apply my-8 p-4 bg-skin-fill border border-skin-line rounded-lg;
+  }
+  
+  .toc-title {
+    @apply text-lg font-semibold text-skin-accent mb-3 mt-0;
+  }
+  
+  .toc-list {
+    @apply list-none m-0 p-0 space-y-1;
+  }
+  
+  .toc-item {
+    @apply leading-relaxed;
+  }
+  
+  .toc-item.depth-1 {
+    @apply ml-0;
+  }
+  
+  .toc-item.depth-2 {
+    @apply ml-4;
+  }
+  
+  .toc-item.depth-3 {
+    @apply ml-8;
+  }
+  
+  .toc-item.depth-4 {
+    @apply ml-12;
+  }
+  
+  .toc-link {
+    @apply text-skin-base hover:text-skin-accent transition-colors duration-200 no-underline;
+  }
+  
+  .toc-link:hover {
+    @apply underline;
+  }
+</style>

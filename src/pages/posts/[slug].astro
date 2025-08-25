@@ -6,10 +6,12 @@ import getSortedPosts from "@utils/getSortedPosts";
 import getPageNumbers from "@utils/getPageNumbers";
 import type { MarkdownInstance } from "astro";
 import type { Frontmatter } from "src/types";
+import type { MarkdownHeading } from "astro";
 import slugify from "@utils/slugify";
 
 export interface Props {
   post: MarkdownInstance<Frontmatter>;
+  headings: MarkdownHeading[];
 }
 
 type PostResult = {
@@ -18,6 +20,7 @@ type PostResult = {
   };
   props?: {
     post: MarkdownInstance<Record<string, any>>;
+    headings: MarkdownHeading[];
   };
 }[];
 
@@ -32,13 +35,21 @@ export async function getStaticPaths() {
 
   const filteredPosts = posts.filter(({ frontmatter }) => !frontmatter.draft);
 
-  let postResult: PostResult = filteredPosts.map(post => {
+  // Extract headings for each post
+  const headings = await Promise.all(
+    filteredPosts.map(async (post) => {
+      return post.getHeadings();
+    })
+  );
+
+  let postResult: PostResult = filteredPosts.map((post, index) => {
     return {
       params: {
         slug: slugify(post.frontmatter),
       },
       props: {
         post,
+        headings: headings[index],
       },
     };
   });
@@ -53,7 +64,7 @@ export async function getStaticPaths() {
 }
 
 const { slug } = Astro.params;
-const { post } = Astro.props;
+const { post, headings } = Astro.props;
 
 const posts = await Astro.glob<Frontmatter>("../../contents/**/*.md");
 
@@ -73,7 +84,7 @@ const paginatedPosts = sortedPosts.slice(startPost, lastPost);
 
 {
   post ? (
-    <PostDetails post={post} />
+    <PostDetails post={post} headings={headings} />
   ) : (
     <Posts
       posts={paginatedPosts}
