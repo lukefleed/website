@@ -12,6 +12,15 @@ ogImage: ""
 description: Design and implementation of a memory-efficient, fixed-width bit-packed integer vector in Rust, achieving O(1) random access.
 ---
 
+---
+
+In this post, we will explore the engineering challenges involved in implementing an efficient vector-like data structure in Rust that stores integers in a compressed, bit-packed format. We will focus on achieving O(1) random access performance while minimizing memory usage. We will try to mimic the ergonomics of Rust's standard `Vec<T>` as closely as possible, including support for mutable access and zero-copy slicing. Finally, we will extend the design to support thread-safe concurrent access with atomic operations.
+
+* All the code can be found on github: [compressed-intvec](https://github.com/lukefleed/compressed-intvec)
+* This is also published as a crate on crates.io: [compressed-intvec](https://crates.io/crates/compressed-intvec)
+
+---
+
 In Rust, `Vec<T>`, where `T` is a primitive integer type like `u64` or `i32`, is the standard for contiguous, heap-allocated arrays. However, its memory layout is fundamentally tied to the static size of `T`, leading to significant waste when the dynamic range of the stored values is smaller than the type's capacity.
 
 This inefficiency is systemic. Consider storing the value `5` within a `Vec<u64>`. Its 8-byte in-memory representation is:
@@ -24,13 +33,24 @@ This inefficiency is systemic. Consider storing the value `5` within a `Vec<u64>
 
 Only 3 bits are necessary to represent the value, leaving 61 bits as zero-padding. The same principle applies, albeit less dramatically, when storing `5` in a `u32` or `u16`. At scale, this overhead becomes prohibitive. A vector of one billion `u64` elements consumes `10^9 * std::mem::size_of::<u64>()`, or approximately 8 GB of memory, even if every element could fit within a single byte.
 
-The canonical solution is bit packing, which aligns data end-to-end in a contiguous bitstream. However, this optimization has historically come at the cost of random access performance. The O(1) access guarantee of `Vec<T>` is predicated on simple pointer arithmetic: `address = base_address + index * std::mem::size_of::<T>()`. Tightly packing the bits invalidates this direct address calculation, seemingly forcing a trade-off between memory footprint and access latency.
+The canonical solution is bit packing, which aligns data end-to-end in a contiguous bitvector. However, this optimization has historically come at the cost of random access performance. The O(1) access guarantee of `Vec<T>` is predicated on simple pointer arithmetic: `address = base_address + index * std::mem::size_of::<T>()`. Tightly packing the bits invalidates this direct address calculation, seemingly forcing a trade-off between memory footprint and access latency.
 
 This raises the central question that with this post we aim to answer: is it possible to design a data structure that decouples its memory layout from the static size of `T`, adapting instead to the data's true dynamic range, without sacrificing the O(1) random access that makes `Vec<T>` so effective?
 
 ## Fixed-width bit packing with arithmetic indexing
 
-If the dynamic range of our data is known, we can define a fixed `bit_width` for every integer. For instance, if the maximum value in a dataset is `1000`, we know every number can be represented in 10 bits, since `2^10 = 1024`. Instead of allocating 64 bits per element, we can store them back-to-back in a contiguous bitstream, forming the core of what from now on we'll refer as `FixedVec`
+If the dynamic range of our data is known, we can define a fixed `bit_width` for every integer. For instance, if the maximum value in a dataset is `1000`, we know every number can be represented in 10 bits, since `2^10 = 1024`. Instead of allocating 64 bits per element, we can store them back-to-back in a contiguous bitvector, forming the core of what from now on we'll refer as `FixedVec`. We can immagine such data strucutre as a logical array of `N` integers, each `bit_width` bits wide, stored in a backing buffer of `u64` words.
+
+```rust
+struct FixedVec {
+    limbs: Vec<u64>, // Backing storage
+    bit_width: usize, // Number of bits per element
+    len: usize, // Number of elements
+    mask: u64, // Precomputed mask for extraction
+}
+```
+
+Where the role of the `mask` field is to isolate the relevant bits during extraction. For a `bit_width` of 10, the mask would be `0b1111111111`.
 
 This immediately solves the space problem, but how can we find the `i`-th element in O(1) time if it doesn't align to a byte boundary? The answer lies in simple arithmetic. The starting bit position of any element is a direct function of its index. Given a backing store of `u64` words, we can locate any value by calculating its absolute bit position and then mapping that to a specific word and an offset within that word.
 
@@ -140,7 +160,7 @@ Only after both of these `mov` instructions complete can the CPU proceed. The `s
 
 This sequence of operations—loading two adjacent 64-bit words, shifting each, and combining them is a software implementation of what is, conceptually, a [128-bit barrel shifter](https://en.wikipedia.org/wiki/Barrel_shifter). We are selecting a 64-bit window from a virtual 128-bit integer formed by concatenating the two words from memory. There are clear data dependencies: the `shr` instruction depends on the first `mov` completing, the `shl` on the second `mov`, and the final `or` on both shifts. This creates a dependency chain that stalls the CPU's execution pipeline if either memory access is slow (e.g., a cache miss). This is the primary source of inefficiency in this path. We are forced to serialize two memory accesses and their subsequent arithmetic.
 
-Can we do better then this? Potentially, yes. We can replace this multi-instruction sequence with something more direct by delegating the complexity to the hardware and performing a single unaligned memory read. Modern x86-64 CPUs handle this directly: when an unaligned load instruction is issued, the CPU's memory controller fetches the necessary cache lines and the load/store unit reassembles the bytes into the target register. This entire process is a single, optimized micro-operation. 
+**Can we do better then this?** Potentially, yes. We can replace this multi-instruction sequence with something more direct by delegating the complexity to the hardware and performing a single unaligned memory read. Modern x86-64 CPUs handle this directly: when an unaligned load instruction is issued, the CPU's memory controller fetches the necessary cache lines and the load/store unit reassembles the bytes into the target register. This entire process is a single, optimized micro-operation. 
 
 We can then implement a more aggressive access method: `get_unaligned_unchecked`. The strategy is to calculate the exact *byte* address where our data begins and perform a single, unaligned read of a full `W` word from that position.
 
@@ -167,7 +187,21 @@ let extracted_word = word >> bit_rem;
 let final_value = extracted_word & self.mask;
 ```
 
-This operation is safe only because we are supposing that our builder guarantees a padding word at the end of the storage buffer. This ensures that even an unaligned read starting in the last few bytes of the logical data area will not access unallocated memory.
+This operation is safe only because we are supposing that our builder guarantees a padding word at the end of the storage buffer. This ensures that even an unaligned read starting in the last few bytes of the logical data area will not access unallocated memory. Combining all these steps, we get our final `get_unaligned_unchecked` implementation:
+
+```rust
+pub unsafe fn get_unaligned_unchecked(&self, index: usize) -> u64 {
+    let bit_pos = index * self.bit_width;
+    let byte_pos = bit_pos / 8;
+    let bit_rem = bit_pos % 8;
+
+    let limbs_ptr = self.as_limbs().as_ptr() as *const u8;
+    // SAFETY: The builder guarantees an extra padding word at the end.
+    let word = (limbs_ptr.add(byte_pos) as *const W).read_unaligned();
+    let extracted_word = word >> bit_rem;
+    extracted_word & self.mask
+}
+```
 
 As before, we can inspect the generated assembly for this method when accessing a spanning index:
 
@@ -218,21 +252,29 @@ We can see that the only other crate that comes close to our performance is [`su
 
 ## The Architecture
 
-Now that we have a solid understanding of the access patterns, we need to think about the overall architecture of this structore. The `FixedVec` must be generic over several parameters that control its memory layout and type interactions:
+With the access patterns defined, we need to think about the overall architecture of this data structure. A solution hardcoded to `u64` would lack the flexibility to adapt to different use cases. We need a structure that is generic over the its principal components: the logical type, the physical storage type, the bit-level ordering, and ownership. We can define a struct that is generic over these four parameters:
 
 ```rust
-pub struct FixedVec<T: Storable<W>, W: Word, E: Endianness, B: AsRef<W]> = Vec<W>> {
-    pub(crate) bits: B,
-    pub(crate) bit_width: usize,
-    pub(crate) mask: W,
-    pub(crate) len: usize,
-    pub(crate) _phantom: PhantomData<(T, W, E)>,
+pub struct FixedVec<T: Storable<W>, W: Word, E: Endianness, B: AsRef<[W]> = Vec<W>> {
+    bits: B,
+    bit_width: usize,
+    mask: W,
+    len: usize,
+    _phantom: PhantomData<(T, W, E)>,
 }
 ```
 
-Where `T` is the **logical element type** (`i16`, `u32`), `W` is the **storage word** (`u64`, `usize`), `E` is the `dsi-bitstream::Endianness`, and `B` is the **backing storage** (`Vec<W>` or `&[W]`). 
+Where:
 
-Now we need to define the traits and abstractions that will allow us to implement this generic structure.
+`T` is the **logical element type**, the type as seen by the user of the API (e.g., `i16`, `u32`). By abstracting `T`, we divide the user-facing type from the internal storage representation.
+
+`W` is the **physical storage word**, which must implement our `Word` trait. It defines the primitive unsigned integer (`u32`, `u64`, `usize`) of the backing buffer and sets the granularity for all bitwise operations. 
+
+`E` requires the `dsi-bitstream::Endianness` trait, allowing us to specify either Little-Endian (`LE`) or Big-Endian (`BE`) byte order. 
+
+`B`, which must implement `AsRef<[W]>`, represents the **backing storage**. This abstraction over ownership allows `FixedVec` to be either an owned container where `B = Vec<W>`, or a zero-copy, borrowed view where `B = &[W]`. This makes it possible to, for example, construct a `FixedVec` directly over a memory-mapped slice without any heap allocation.
+
+In this way, the compiler monomorphizes the struct and its methods for each concrete instantiation (e.g., `FixedVec<i16, u64, LE, Vec<u64>>`), resulting in specialized code with no runtime overhead from the generic abstractions.
 
 ### Abstracting the storage word
 
@@ -839,7 +881,7 @@ fn atomic_rmw(&self, index: usize, val: T, order: Ordering, op: impl Fn(T, T) ->
 }
 ```
 
-By parameterizing over the operation, we have completely decoupled the complex, low-level concurrency logic from the simple arithmetic or bitwise logic of each specific RMW operation. This allows the compiler to monomorphize and inline the `op` closure for each call site, resulting in highly specialized and efficient machine code for each RMW variant, giving us a zero-cost abstraction.
+By parameterizing over the operation, we have completely decoupled the complex, low-level concurrency logic from the simple arithmetic or bitwise logic of each specific RMW operation. This allows the compiler to monomorphize and inline the `op` closure for each call site, resulting in specialized and efficient machine code for each RMW variant, giving us a zero-cost abstraction.
 
 Now implementing specific RMW methods becomes a straightforward exercise in composition. Each specific operation is now a simple non-looping wrapper that calls `atomic_rmw` and provides a closure defining the desired computation. For example, `fetch_add` is implemented by passing a closure that performs a wrapping addition.
 
