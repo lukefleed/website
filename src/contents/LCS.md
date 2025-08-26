@@ -4,6 +4,8 @@ datetime: 2024-12-14
 title: Finding Diverse Strings and Longest Common Sequences in a Graph
 slug: DiverseLCS
 featured: false
+university: true
+posts: false
 draft: false
 tags:
   - algorithms-and-data-structures

@@ -4,7 +4,9 @@ datetime: 2022-12-01
 title: leetcode solutions
 slug: leetcode
 featured: false
-draft: false
+university: false
+posts: false
+draft: true
 tags:
   - Competitive Programming
   - Algorithms and Data Structures

@@ -14,8 +14,11 @@ import { SOCIALS } from "@config";
 const posts = await Astro.glob<Frontmatter>("../contents/**/*.md");
 
 const sortedPosts = getSortedPosts(posts);
-const featuredPosts = sortedPosts.filter(
-  ({ frontmatter }) => frontmatter.featured
+const featuredPostsPosts = sortedPosts.filter(
+  ({ frontmatter }) => frontmatter.posts && frontmatter.featured
+);
+const featuredUniPosts = sortedPosts.filter(
+  ({ frontmatter }) => frontmatter.university && frontmatter.featured
 );
 
 const socialCount = SOCIALS.filter(social => social.active).length;
@@ -31,8 +34,17 @@ const socialCount = SOCIALS.filter(social => social.active).length;
         class="float-right w-56 h-56 rounded-full object-cover ml-4"
       />
       <p>
-        Hello There! I'm a mathematician who turned to the dark side of computer science. I have a Bachelor's Degree in Mathematics and I'm currently pursuing a Master's Degree in Computer Science at the University of Pisa, Italy.
+        Hello There! I'm a mathematician who turned to the dark side of computer science. I have a Bachelor's Degree in Mathematics and I'm currently pursuing a Master's Degree in Computer Science at the University of Pisa, Italy. My main interests are in the fields of:
       </p>
+
+      <ul class="indented-list">
+        <li>📕 Succinct data structures and data compression</li>
+        <li>📘 Algorithms and data structures</li>
+        <li>📗 Graph theory and high-performance computing</li>
+        <li>📙 Rust and low-level code optimization</li>
+      </ul>
+
+      For my Bachelor's thesis in mathematics I presented a new succinct data structure for extending the classical rank query (the one for bitvectors and strings) to Directed Acyclic Graphs. You can have a look at it here:
 
       <div class="thesis-box">
         <div class="thesis-content">
@@ -54,17 +66,11 @@ const socialCount = SOCIALS.filter(social => social.active).length;
         </div>
       </div>
 
+  
+
       <p>
         I am also a member of <a href="https://phc.dm.unipi.it/">PHC</a>, a group of enthusiastic students about technology, software, hardware, and how they work together. We manage a few servers, websites and services for the mathematics department students. Sometimes we also organize seminars about various topics related to math and computer science (often together!).
       </p>
-
-      <p>These are some of my <strong>research interests</strong>:</p>
-      <ul class="indented-list">
-        <li>📕 Succinct data structures and data compression</li>
-        <li>📘 Algorithms and data structures</li>
-        <li>📗 Graph theory and high-performance computing</li>
-        <li>📙 Rust and low-level code optimization</li>
-      </ul>
 
       <!-- <p>
         Here you can see my coding hours from the beginning of 2023:
@@ -104,14 +110,34 @@ const socialCount = SOCIALS.filter(social => social.active).length;
     <Hr />
 
     {
-      featuredPosts.length > 0 && (
+      featuredPostsPosts.length > 0 && (
         <>
-          <section id="featured">
-            <h2>Personal Projects</h2>
+          <section id="featured-posts">
+            <h2>Posts</h2>
             <ul>
-              {featuredPosts.map(({ frontmatter }) => (
+              {featuredPostsPosts.map(({ frontmatter }) => (
                 <Card
                   href={`/posts/${slugify(frontmatter)}`}
+                  post={frontmatter}
+                  secHeading={false}
+                />
+              ))}
+            </ul>
+          </section>
+          <Hr />
+        </>
+      )
+    }
+
+    {
+      featuredUniPosts.length > 0 && (
+        <>
+          <section id="featured-uni">
+            <h2>University</h2>
+            <ul>
+              {featuredUniPosts.map(({ frontmatter }) => (
+                <Card
+                  href={`/university/${slugify(frontmatter)}`}
                   post={frontmatter}
                   secHeading={false}
                 />
@@ -127,27 +153,7 @@ const socialCount = SOCIALS.filter(social => social.active).length;
       <h2>Editorial activity</h2>
       <br />
       <p>
-        I used to write cool articles and guides for a tech blog:
-        <LinkButton href="https://morethantech.it/">
-          <u>MoreThanTech</u>
-        </LinkButton>
-      </p>
-
-      <div class="all-posts-btn-wrapper">
-        <LinkButton
-          href="https://morethantech.it/autori/11_luca-lombardo"
-        >
-          All my articles
-          <svg xmlns="http://www.w3.org/2000/svg"
-            ><path
-              d="m11.293 17.293 1.414 1.414L19.414 12l-6.707-6.707-1.414 1.414L15.586 11H6v2h9.586z"
-            ></path>
-          </svg>
-        </LinkButton>
-      </div>
-
-      <p>
-        I mostly talked about learining Linux, fixing Windows, interesting open-source projects and exotic mechanical keyboards. Here you can read everything that I wrote during those two years! Note that it's all in italian.
+        I used to write cool articles and guides for a tech blog called <a href="https://morethantech.it/">MoreThanTech</a>. You can read all my articles (in italian) <a href="https://morethantech.it/autori/11_luca-lombardo">here</a>. I mostly talked about learning Linux, fixing Windows, interesting open-source projects and exotic mechanical keyboards..
       </p>
     </section>
 
@@ -245,19 +251,23 @@ const socialCount = SOCIALS.filter(social => social.active).length;
   }
 
   /* ===== Featured & Recent Posts Sections ===== */
-  #featured,
+  #featured-posts,
+  #featured-uni,
   #editorial,
   #music {
     @apply pt-12 pb-6;
   }
-  #featured h2,
+  #featured-posts h2,
+  #featured-uni h2,
   #editorial h2,
   #music h2 {
     @apply font-semibold text-2xl tracking-wide;
   }
-  #featured p,
+  #featured-posts p,
+  #featured-uni p,
   #editorial p,
   #music p {
+    /* Add any common paragraph styles here if needed */
   }
   .all-posts-btn-wrapper {
     @apply text-center my-8;

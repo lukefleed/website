@@ -1,6 +1,6 @@
 ---
 import { SITE } from "src/config";
-import Posts from "@layouts/Posts.astro";
+import University from "@layouts/University.astro";
 import PostDetails from "@layouts/PostDetails.astro";
 import getSortedPosts from "@utils/getSortedPosts";
 import getPageNumbers from "@utils/getPageNumbers";
@@ -33,8 +33,9 @@ type PagePaths = {
 export async function getStaticPaths() {
   const posts = await Astro.glob<Frontmatter>("../../contents/**/*.md");
 
+  // Filter only university posts that are not draft
   const filteredPosts = posts.filter(({ frontmatter }) => 
-    frontmatter.posts && !frontmatter.draft
+    frontmatter.university && !frontmatter.draft
   );
 
   // Extract headings for each post
@@ -70,8 +71,9 @@ const { post, headings } = Astro.props;
 
 const posts = await Astro.glob<Frontmatter>("../../contents/**/*.md");
 
-const postsOnly = posts.filter(({ frontmatter }) => frontmatter.posts);
-const sortedPosts = getSortedPosts(postsOnly);
+// Filter only university posts
+const universityPosts = posts.filter(({ frontmatter }) => frontmatter.university);
+const sortedPosts = getSortedPosts(universityPosts);
 
 const totalPages = getPageNumbers(sortedPosts.length);
 
@@ -89,7 +91,7 @@ const paginatedPosts = sortedPosts.slice(startPost, lastPost);
   post ? (
     <PostDetails post={post} headings={headings} />
   ) : (
-    <Posts
+    <University
       posts={paginatedPosts}
       pageNum={currentPage}
       totalPages={totalPages.length}

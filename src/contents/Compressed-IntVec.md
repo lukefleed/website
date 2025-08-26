@@ -4,6 +4,8 @@ datetime: 2025-08-24
 title: Engineering a Fixed-Width bit-packed Integer Vector in Rust
 slug: compressed-intvec
 featured: true
+university: false
+posts: true
 draft: false
 tags:
   - Rust

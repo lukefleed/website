@@ -4,6 +4,8 @@ datetime: 2023-04-04
 title: Queueing System with Potential for Recruiting Secondary Servers
 slug: NumMarkov
 featured: false
+university: true
+posts: false
 draft: false
 tags:
   - Numerical Analysis

@@ -3,7 +3,9 @@ author: Luca Lombardo
 datetime: 2024-01-24
 title: G2 cheat sheet
 slug: G2-cheat-sheet
-featured: false
+featured: true
+university: true
+posts: false
 draft: false
 tags:
   - Math

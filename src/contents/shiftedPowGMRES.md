@@ -4,6 +4,8 @@ datetime: 2022-12-27
 title: Methods for solving PageRank with multiple damping factors
 slug: ShiftedPowGMRES
 featured: true
+university: true
+posts: false
 draft: false
 tags:
   - Numerical Analysis

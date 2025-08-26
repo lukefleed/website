@@ -4,6 +4,8 @@ datetime: 2023-02-24
 title: Identifying small worlds networks
 slug: small-worlds
 featured: true
+university: true
+posts: false
 draft: false
 tags:
   - Graph Theory
