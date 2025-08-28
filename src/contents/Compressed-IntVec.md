@@ -107,7 +107,7 @@ Finally, we combine the two parts with a bitwise OR and apply the mask to discar
 (low_part | high_part) & self.mask
 ```
 
-The line `limbs.get_unchecked(word_index + 1)` introduces a safety concern: if we are reading the last element of the vector, `word_index + 1` could point past the end of our buffer, leading to undefined behavior. To prevent this, our builder must always allocate one extra padding word at the end of the storage. 
+The line `limbs.get_unchecked(word_index + 1)` introduces a safety concern: if we are reading the last element of the vector, `word_index + 1` could point past the end of our buffer, leading to undefined behavior. To prevent this, our builder must always allocate one extra padding word at the end of the storage.
 
 Integrating these two paths gives us our final `get_unchecked` implementation:
 
@@ -156,11 +156,11 @@ The instruction `mov rsi, qword ptr [r8 + 8*rdx]` is our first memory access. It
 
 Immediately following is `mov rdx, qword ptr [r8 + 8*rdx + 8]`. This is our second, distinct memory access. It loads the *next* 64-bit word from memory by adding an 8-byte offset to the previous address. This corresponds to `limbs[word_index + 1]`.
 
-Only after both of these `mov` instructions complete can the CPU proceed. The `shr rsi, cl` instruction (shift right `rsi` by the count in `cl`) cannot execute until the first `mov` has placed a value in `rsi`. Similarly, `shl rdx, cl` depends on the second `mov`. Finally, `or rdx, rsi` depends on both shifts. 
+Only after both of these `mov` instructions complete can the CPU proceed. The `shr rsi, cl` instruction (shift right `rsi` by the count in `cl`) cannot execute until the first `mov` has placed a value in `rsi`. Similarly, `shl rdx, cl` depends on the second `mov`. Finally, `or rdx, rsi` depends on both shifts.
 
-This sequence of operations—loading two adjacent 64-bit words, shifting each, and combining them is a software implementation of what is, conceptually, a [128-bit barrel shifter](https://en.wikipedia.org/wiki/Barrel_shifter). We are selecting a 64-bit window from a virtual 128-bit integer formed by concatenating the two words from memory. 
+This sequence of operations—loading two adjacent 64-bit words, shifting each, and combining them is a software implementation of what is, conceptually, a [128-bit barrel shifter](https://en.wikipedia.org/wiki/Barrel_shifter). We are selecting a 64-bit window from a virtual 128-bit integer formed by concatenating the two words from memory.
 
-**Can we do better then this?** Potentially, yes. We can replace this multi-instruction sequence with something more direct by delegating the complexity to the hardware and performing a single unaligned memory read. Modern x86-64 CPUs handle this directly: when an unaligned load instruction is issued, the CPU's memory controller fetches the necessary cache lines and the load/store unit reassembles the bytes into the target register. This entire process is a single, optimized micro-operation. 
+**Can we do better then this?** Potentially, yes. We can replace this multi-instruction sequence with something more direct by delegating the complexity to the hardware and performing a single unaligned memory read. Modern x86-64 CPUs handle this directly: when an unaligned load instruction is issued, the CPU's memory controller fetches the necessary cache lines and the load/store unit reassembles the bytes into the target register. This entire process is a single, optimized micro-operation.
 
 We can try to implement a more aggressive access method. The strategy is to calculate the exact *byte* address where our data begins and perform a single, unaligned read of a full `W` word from that position.
 
@@ -249,13 +249,88 @@ We can see that the implementation of [`sux`] is almost on par with ours. The ot
 [`simple-sds-sbwt`]: https://docs.rs/simple-sds-sbwt/latest/simple_sds_sbwt/int_vector/struct.IntVector.html
 [`bench-intvec`]: https://github.com/lukefleed/compressed-intvec/blob/master/benches/fixed/bench_random_access.rs
 
-## The other half of the problem: writing bits
+## Iterating Over Values
+
+The most common operation on any `Vec`-like structure is, after all, a simple `for` loop. The simplest way to implement `iter()` would be to just wrap `get()` in a loop:
+
+```rust
+// A naive, inefficient iterator
+for i in 0..vec.len() {
+    let value = vec.get(i);
+    // ... do something with value
+}
+```
+
+This works, but it's terribly inefficient. Every single call to `get(i)` independently recalculates the `word_index` and `bit_offset` from scratch. We're throwing away valuable state, our current position in the bitstream, on every iteration, forcing the CPU to perform redundant multiplications and divisions.
+
+We can think then about a *stateful* iterator. It should operate directly on the bitvector, maintaining its own position. Instead of thinking in terms of logical indices, it should think in terms of a "bit window", a local `u64` register that holds the current chunk of bits being processed.
+
+The idea is simple: the iterator loads one `u64` word from the backing store into its window. It then satisfies `next()` calls by decoding values directly from this in-register window. Only when the window runs out of bits does it need to go back to memory for the next `u64` word. This amortizes the cost of memory access over many `next()` calls.
+
+For forward iteration, the state is minimal:
+
+```rust
+struct FixedVecIter<'a, ...> {
+    // ...
+    front_window: u64,
+    front_bits_in_window: usize,
+    front_word_index: usize,
+    // ...
+}
+```
+
+The `next()` method first checks if the current `front_window` has enough bits to satisfy the request. If `self.front_bits_in_window >= bit_width`, it's the fast path: a simple shift and mask on a register, which is incredibly fast.
+
+```rust
+// Inside next(), fast path:
+if self.front_bits_in_window >= bit_width {
+    let value = self.front_window & self.mask;
+    self.front_window >>= bit_width;
+    self.front_bits_in_window -= bit_width;
+    return Some(value);
+}
+```
+
+If the window is running low on bits, we hit the slower path. The next value spans the boundary between our current window and the next `u64` word in memory. We must read the next word, combine its bits with the remaining bits in our current window, and then extract the value. This is the same logic as the spanning-word `get()`, but it's performed incrementally.
+
+### Double-Ended Iteration
+
+But a good iterator should be bidirectional; it should implement [`DoubleEndedIterator`](https://doc.rust-lang.org/std/iter/trait.DoubleEndedIterator.html) and support [`next_back()`](https://doc.rust-lang.org/std/iter/trait.DoubleEndedIterator.html#tymethod.next_back). This throws a wrench in our simple stateful model. A single window and cursor can only move in one direction.
+
+The solution is to maintain two independent sets of state: one for the front and one for the back. The `FixedVecIter` needs to track two windows, two bit counters, and two word indices.
+
+```rust
+struct FixedVecIter<'a, ...> {
+    // ...
+    front_index: usize,
+    back_index: usize,
+
+    // State for forward iteration
+    front_window: u64,
+    front_bits_in_window: usize,
+    front_word_index: usize,
+
+    // State for backward iteration
+    back_window: u64,
+    back_bits_in_window: usize,
+    back_word_index: usize,
+    // ...
+}
+```
+
+Initializing the front is easy: we load `limbs[0]` into `front_window`. The back is more complex. We must calculate the exact word index and the number of valid bits in the *last* word that contains data. This requires a bit of arithmetic to handle cases where the data doesn't perfectly fill the final word.
+
+The `next()` method consumes from the `front_window`, advancing the front state. The `next_back()` method consumes from the `back_window`, advancing the back state. The iterator is exhausted when `front_index` meets `back_index`.
+
+> The full implementation can be found in the iter module of the [library](https://github.com/lukefleed/compressed-intvec/blob/master/src/fixed/iter.rs)
+
+# The other half of the problem: writing bits
 
 We have solved the read problem, but we may also want to modify values in place. A method like `set(index, value)` seems simple, but it opens up the same can of worms as `get`, just in reverse. We can't just write the new value; we have to do so without clobbering the adjacent, unrelated data packed into the same `u64` word.
 
 Just like with reading, the logic splits into two paths. The "fast path" handles values that are fully contained within a single `u64`. Here, we can't just overwrite the word. We first need to clear out the bits for the element we're replacing and then merge in the new value.
 
-### The In-Word Write Path
+## The In-Word Write Path
 
 Our goal here is to update a `bit_width`-sized slice of a `u64` word while leaving the other bits untouched. This operation must be a read-modify-write sequence to avoid corrupting adjacent elements. The most efficient way to implement this is to load the entire word into a register, perform all bitwise modifications locally, and then write the final result back to memory in a single store operation.
 
@@ -288,7 +363,7 @@ Finally, with the modifications complete, we write the updated word from the reg
 ```
 This entire sequence of one read, two bitwise operations in-register, one write is the canonical and most efficient way to perform a sub-word update.
 
-### The Spanning Write Path
+## The Spanning Write Path
 
 Now for the hard part: writing a value that crosses a word boundary. This operation must modify two separate `u64` words in our backing store. It's the inverse of the spanning read. We need to split our `value_w` into a low part and a high part and write each to the correct word, minimizing memory accesses.
 
@@ -342,7 +417,7 @@ high_word_val |= value_w >> remaining_bits_in_first_word;
 *right.get_unchecked_mut(0) = high_word_val;
 ```
 
-### Random Write Performance
+## Random Write Performance
 
 As with reads, we can benchmark the latency of 1 million random write operations on a vector containing 10 million elements. The code for the benchmark is available here: [`bench-intvec-writes`].
 
@@ -350,7 +425,7 @@ As with reads, we can benchmark the latency of 1 million random write operations
 
 Here, the `Vec<T>` baseline is the clear winner across almost all bit-widths. This isn't surprising. A `set` operation in a `Vec<T>` compiles down to a single `MOV` instruction with a simple addressing mode (`[base + index * element_size]`). It's about as fast as the hardware allows.
 
-As for the reads, the performance of our `FixedVec` is almost identical to that of [`sux`]. The other two crates, [`succinct`] and [`simple-sds-sbwt`], are again slower. It's worth noting that also for the writes, neither of these last two crates provides unchecked methods. 
+As for the reads, the performance of our `FixedVec` is almost identical to that of [`sux`]. The other two crates, [`succinct`] and [`simple-sds-sbwt`], are again slower. It's worth noting that also for the writes, neither of these last two crates provides unchecked methods.
 
 For the 64-bit width case, I honestly have no idea what is going on with [`sux`] being so much faster than everything else, even then `Vec<u64>`! Mybe some weird compiler optimization? If you have any insight, please let me know.
 
@@ -372,9 +447,9 @@ Where:
 
 `T` is the **logical element type**, the type as seen by the user of the API (e.g., `i16`, `u32`). By abstracting `T`, we divide the user-facing type from the internal storage representation.
 
-`W` is the **physical storage word**, which must implement our `Word` trait. It defines the primitive unsigned integer (`u32`, `u64`, `usize`) of the backing buffer and sets the granularity for all bitwise operations. 
+`W` is the **physical storage word**, which must implement our `Word` trait. It defines the primitive unsigned integer (`u32`, `u64`, `usize`) of the backing buffer and sets the granularity for all bitwise operations.
 
-`E` requires the `dsi-bitstream::Endianness` trait, allowing us to specify either Little-Endian (`LE`) or Big-Endian (`BE`) byte order. 
+`E` requires the `dsi-bitstream::Endianness` trait, allowing us to specify either Little-Endian (`LE`) or Big-Endian (`BE`) byte order.
 
 `B`, which must implement `AsRef<[W]>`, represents the **backing storage**. This abstraction over ownership allows `FixedVec` to be either an owned container where `B = Vec<W>`, or a zero-copy, borrowed view where `B = &[W]`. This makes it possible to, for example, construct a `FixedVec` directly over a memory-mapped slice without any heap allocation.
 
@@ -430,7 +505,7 @@ fn to_int(self) -> Self::SignedInt {
 
 Here, `(self >> 1)` shifts the value back. The term `-(self & 1)` creates a mask from the LSB (the original sign bit). In two's complement, this becomes `0` for even numbers (originally positive) and `-1` (all ones) for odd numbers (originally negative). The final XOR with this mask correctly restores the original two's complement representation.
 
-With this logic within the trait system, the main `FixedVec` implementation remains clean and agnostic to the signedness of the data it stores. 
+With this logic within the trait system, the main `FixedVec` implementation remains clean and agnostic to the signedness of the data it stores.
 
 ## The Builder Pattern
 
@@ -462,7 +537,7 @@ With this, the `FixedVecBuilder` could be designed as a state machine. It holds 
 ```rust
 // A look at the builder's logic flow
 pub fn build(self, input: &[T]) -> Result<FixedVec<...>, Error> {
-    
+
     let final_bit_width = match self.bit_width_strategy {
         BitWidth::Explicit(n) => n,
         _ => {
@@ -495,7 +570,7 @@ let vec_pow2: UFixedVec<u32> = FixedVec::builder()
     .bit_width(BitWidth::PowerOfTwo)
     .build(data)
     .unwrap();
-    
+
 assert_eq!(vec_pow2.bit_width(), 16);
 ```
 
@@ -628,7 +703,7 @@ How can we guarantee atomicity for an operation on a 10-bit integer that require
 
 To make `FixedVec` support concurrency, we have to make some changes in its internal design. The first step is to change the backing storage. A `Vec<T>` is not thread-safe for concurrent writes. We can replace it with a `Vec<AtomicU64>`. This ensures that every individual read and write to a 64-bit word is, at a minimum, atomic.
 
-However, as we've established, a logical element can span two of these atomic words. A simple `Vec<AtomicU64>` does not solve the problem of atomically updating a value that crosses a word boundary. To handle this, we can add a second component to our struct: a striped lock pool. This is a vector of `parking_lot::Mutex` instances, where the number of locks is a power of two. Each lock protects a subset of the `AtomicU64` words in our storage. When an operation needs to modify two adjacent words, it will acquire the appropriate locks to ensure exclusive access. 
+However, as we've established, a logical element can span two of these atomic words. A simple `Vec<AtomicU64>` does not solve the problem of atomically updating a value that crosses a word boundary. To handle this, we can add a second component to our struct: a striped lock pool. This is a vector of `parking_lot::Mutex` instances, where the number of locks is a power of two. Each lock protects a subset of the `AtomicU64` words in our storage. When an operation needs to modify two adjacent words, it will acquire the appropriate locks to ensure exclusive access.
 
 We can then define the `AtomicFixedVec` struct as follows:
 
@@ -659,7 +734,7 @@ A CAS operation is an atomic instruction provided by the hardware (e.g., `CMPXCH
 
 Let's try to implement an atomic `store` on a sub-word element. We cannot simply write the new value, as that would non-atomically overwrite adjacent elements in the same word. The operation must be a read-modify-write on the entire `AtomicU64`, where the "modify" step only alters the bits corresponding to our target element.
 
-We begin by calculating the `word_index` and `bit_offset`. 
+We begin by calculating the `word_index` and `bit_offset`.
 
 ```rust
 let bit_pos = index * self.bit_width;
@@ -667,7 +742,7 @@ let word_index = bit_pos / u64::BITS as usize;
 let bit_offset = bit_pos % u64::BITS as usize;
 ```
 
-We then prepare a `store_mask` to isolate the target bit range and a `store_value` with the new value already shifted into position. 
+We then prepare a `store_mask` to isolate the target bit range and a `store_value` with the new value already shifted into position.
 
 ```rust
 let store_mask = self.mask << bit_offset;
@@ -720,7 +795,7 @@ fn atomic_store(&self, index: usize, value: u64, order: Ordering) {
     }
 ```
 
-This entire path is lock-free. Contention is managed at the hardware level by the CPU's cache coherency protocol, which ensures that only one core can successfully commit a CAS operation to a given cache line at a time. 
+This entire path is lock-free. Contention is managed at the hardware level by the CPU's cache coherency protocol, which ensures that only one core can successfully commit a CAS operation to a given cache line at a time.
 
 In the same way, we can implement other atomic operations like `atomic_rmw` (for `fetch_add`, `fetch_sub`, etc.) and `atomic_load` using similar CAS loops or direct atomic loads.
 
@@ -818,7 +893,7 @@ fn atomic_store(&self, index: usize, value: u64, order: Ordering) {
         let _guard = self.locks[lock_index].lock();
         // The lock guarantees exclusive access to this multi-word operation.
         // We still use atomic operations inside to prevent races with the
-        // lock-free path, which might be concurrently accessing one of 
+        // lock-free path, which might be concurrently accessing one of
         // these words.
         let low_word_ref = &self.storage[word_index];
         let high_word_ref = &self.storage[word_index + 1];
@@ -868,7 +943,7 @@ The first benchmark measure the performance of our **lock-free path**. We config
 
 As we can see, all three implementations scale well with increasing thread count. The throughput of `AtomicFixedVec` is very close to that of `sux::AtomicBitFieldVec`, which is expected since both are using similar lock-free CAS loops for this scenario. Both bit-packed vectors have a noticeable dip at two threads, likely due to initial cache coherency overhead, but then scale up effectively with the core count.
 
-The second benchmark tries to stress the **locked path**. We configure the vectors with a `bit_width` of 15. This non-power-of-two width guarantees that a predictable fraction of writes will cross word boundaries. In our case, `(15 + 63) % 64` spanning cases out of 64 offsets, so roughly `14/64` or ~22% will require locking. This forces our `AtomicFixedVec` to use its lock striping mechanism for those spanning writes. In contrast, `sux` will proceed without locking, risking data races but avoiding locking overhead. 
+The second benchmark tries to stress the **locked path**. We configure the vectors with a `bit_width` of 15. This non-power-of-two width guarantees that a predictable fraction of writes will cross word boundaries. In our case, `(15 + 63) % 64` spanning cases out of 64 offsets, so roughly `14/64` or ~22% will require locking. This forces our `AtomicFixedVec` to use its lock striping mechanism for those spanning writes. In contrast, `sux` will proceed without locking, risking data races but avoiding locking overhead.
 
 <iframe src="/bench-intvec/atomic_scaling_locked_path_diffuse.html" width="100%" height="550px" style="border: none;"></iframe>
 
