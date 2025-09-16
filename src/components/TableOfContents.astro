@@ -32,39 +32,67 @@ const filteredHeadings = headings.filter((heading) => heading.depth <= 4);
   .table-of-contents {
     @apply my-8 p-4 bg-skin-fill border border-skin-line rounded-lg;
   }
-  
+
   .toc-title {
     @apply text-lg font-semibold text-skin-accent mb-3 mt-0;
   }
-  
+
   .toc-list {
-    @apply list-none m-0 p-0 space-y-1;
+    @apply list-none m-0 p-0;
   }
-  
+
   .toc-item {
     @apply leading-relaxed;
   }
-  
+
   .toc-item.depth-1 {
-    @apply ml-0;
+    @apply ml-0 mb-2;
   }
-  
+
+  .toc-item.depth-1 .toc-link {
+    @apply font-semibold text-base text-skin-accent;
+  }
+
   .toc-item.depth-2 {
-    @apply ml-4;
+    @apply ml-4 mb-1 flex items-baseline;
   }
-  
+
+  .toc-item.depth-2::before {
+    @apply content-['•'] text-skin-accent mr-2 font-bold flex-shrink-0;
+  }
+
+  .toc-item.depth-2 .toc-link {
+    @apply font-medium text-sm text-skin-base flex-1;
+  }
+
   .toc-item.depth-3 {
-    @apply ml-8;
+    @apply ml-8 mb-0.5 flex items-baseline;
   }
-  
+
+  .toc-item.depth-3::before {
+    @apply content-['◦'] text-skin-base mr-2 opacity-80 flex-shrink-0;
+  }
+
+  .toc-item.depth-3 .toc-link {
+    @apply font-normal text-sm text-skin-base opacity-90 flex-1;
+  }
+
   .toc-item.depth-4 {
-    @apply ml-12;
+    @apply ml-12 mb-0.5 flex items-baseline;
   }
-  
+
+  .toc-item.depth-4::before {
+    @apply content-['▸'] text-skin-base mr-2 opacity-60 text-xs flex-shrink-0;
+  }
+
+  .toc-item.depth-4 .toc-link {
+    @apply font-normal text-xs text-skin-base opacity-70 flex-1;
+  }
+
   .toc-link {
-    @apply text-skin-base hover:text-skin-accent transition-colors duration-200 no-underline;
+    @apply hover:text-skin-accent transition-colors duration-200 no-underline py-0.5;
   }
-  
+
   .toc-link:hover {
     @apply underline;
   }
