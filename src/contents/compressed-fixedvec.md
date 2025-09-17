@@ -92,7 +92,7 @@ The right-shift `>>` operation moves the bits of the entire `u64` word to the ri
 
 The single-word access logic is fast, but it only works as long as `bit_offset + bit_width <= 64`. This assumption breaks down as soon as an integer's bit representation needs to cross the boundary from one `u64` word into the next. This is guaranteed to happen for any `bit_width` that is not a power of two. For example, with a 10-bit width, the element at `index = 6` starts at bit position 60. Its 10 bits will occupy bits 60-63 of the first word and bits 0-5 of the second. The simple right-shift-and-mask trick fails here.
 
-![crossing word boundaries](/public/assets/fixedvec.svg)
+![crossing word boundaries](/assets/fixedvec.svg)
 
 To correctly decode the value, we must read *two* consecutive `u64` words and combine their bits. This splits our `get_unchecked` implementation into two paths. The first is the fast path we've already seen. The second is a new path for spanning values.
 
@@ -434,7 +434,7 @@ Here, the `Vec<T>` baseline is the clear winner across almost all bit-widths. Th
 
 As for the reads, the performance of our `FixedVec` is almost identical to that of [`sux`]. The other two crates, [`succinct`] and [`simple-sds-sbwt`], are again slower. It's worth noting that also for the writes, neither of these last two crates provides unchecked methods.
 
-For the 64-bit width case, I honestly have no idea what is going on with [`sux`] being so much faster than everything else, even then `Vec<u64>`! Mybe some weird compiler optimization? If you have any insight, please let me know.
+> For the 64-bit width case, I honestly have no idea what is going on with [`sux`] being so much faster than everything else, even then `Vec<u64>`! Mybe some weird compiler optimization? If you have any insight, please let me know.
 
 # The Architecture
 
