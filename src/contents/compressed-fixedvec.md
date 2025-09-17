@@ -10,7 +10,7 @@ draft: false
 tags:
   - Rust
   - Succinct Data Structures
-ogImage: ""
+ogImage: "/assets/fixedvec.png"
 description: Design and implementation of a memory-efficient, fixed-width bit-packed integer vector in Rust, with extremely fast random access.
 ---
 
