@@ -45,10 +45,16 @@ const fallbackImageURL = new URL(SITE.ogImage, Astro.url.origin).href;
     <meta name="author" content={author} />
 
     <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:url" content={canonicalURL} />
     <meta property="og:image" content={socialImageURL} />
+    <meta property="og:image:alt" content={title} />
+    <meta property="og:site_name" content={SITE.title} />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
 
     <!-- Twitter -->
     <meta property="twitter:card" content="summary_large_image" />
@@ -61,6 +67,7 @@ const fallbackImageURL = new URL(SITE.ogImage, Astro.url.origin).href;
         ? fallbackImageURL
         : socialImageURL}
     />
+    <meta property="twitter:image:alt" content={title} />
 
     <!-- Google Font -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -85,23 +92,27 @@ const fallbackImageURL = new URL(SITE.ogImage, Astro.url.origin).href;
     }
 
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" integrity="sha384-XjKyOOlGwcjNTAIQHIpgOno0Hl1YQqzUOEleOLALmuqehneUG+vnGctmUb0ZY0l8" crossorigin="anonymous"></script>
-    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" integrity="sha384-+VBxd3r6XgURycqtZ117nYw44OOcIax56Z4dCRWbxyPt0Koah1uHoK0o4+/RRE05" crossorigin="anonymous"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" integrity="sha384-+VBxd3r6XgURycqtZ117nYw44OOcIax56Z4dCRWbxyPt0Koah1uHoK0o4+/RRE05" crossorigin="anonymous" onload="renderMath()"></script>
 
-    <script>
+    <script is:inline>
+      function renderMath() {
+        if (typeof window.renderMathInElement !== 'undefined') {
+          window.renderMathInElement(document.body, {
+            delimiters: [
+              {left: '$$', right: '$$', display: true},
+              {left: '$', right: '$', display: false},
+              {left: '\\(', right: '\\)', display: false},
+              {left: '\\[', right: '\\]', display: true}
+            ],
+            throwOnError: false
+          });
+        }
+      }
+      
+      // Fallback per quando defer non funziona perfettamente
       document.addEventListener("DOMContentLoaded", function() {
-            renderMathInElement(document.body, {
-              // customised options
-              // • auto-render specific keys, e.g.:
-              delimiters: [
-                  {left: '$$', right: '$$', display: true},
-                  {left: '$', right: '$', display: false},
-                  {left: '\\(', right: '\\)', display: false},
-                  {left: '\\[', right: '\\]', display: true}
-              ],
-              // • rendering keys, e.g.:
-              throwOnError : false
-            });
-        });
+        setTimeout(renderMath, 100);
+      });
     </script>
 
 
