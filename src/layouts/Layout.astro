@@ -108,7 +108,7 @@ const fallbackImageURL = new URL(SITE.ogImage, Astro.url.origin).href;
           });
         }
       }
-      
+
       // Fallback per quando defer non funziona perfettamente
       document.addEventListener("DOMContentLoaded", function() {
         setTimeout(renderMath, 100);

@@ -331,7 +331,7 @@ The `next()` method consumes from the `front_window`, advancing the front state.
 
 > The full implementation can be found in the iter module of the [library](https://github.com/lukefleed/compressed-intvec/blob/master/src/fixed/iter.rs)
 
-# The other half of the problem: writing bits
+# Writing bits
 
 We have solved the read problem, but we may also want to modify values in place. A method like `set(index, value)` seems simple, but it opens up the same can of worms as `get`, just in reverse. We can't just write the new value; we have to do so without clobbering the adjacent, unrelated data packed into the same `u64` word.
 
@@ -436,7 +436,7 @@ As for the reads, the performance of our `FixedVec` is almost identical to that 
 
 > For the 64-bit width case, I honestly have no idea what is going on with [`sux`] being so much faster than everything else, even then `Vec<u64>`! Mybe some weird compiler optimization? If you have any insight, please let me know.
 
-# The Architecture
+# Architecture
 
 With the access patterns defined, we need to think about the overall architecture of this data structure. A solution hardcoded to `u64` would lack the flexibility to adapt to different use cases. We need a structure that is generic over the its principal components: the logical type, the physical storage type, the bit-level ordering, and ownership. We can define a struct that is generic over these four parameters:
 
@@ -513,7 +513,7 @@ Here, `(self >> 1)` shifts the value back. The term `-(self & 1)` creates a mask
 
 With this logic within the trait system, the main `FixedVec` implementation remains clean and agnostic to the signedness of the data it stores.
 
-## The Builder Pattern
+## Builder Pattern
 
 Once the structure logic is in place, we have to design an ergonomic way to construct it. A simple `new()` function isn't sufficient because the vector's memory layout depends on parameters that must be determined *before* allocation, most critically the `bit_width`. This is a classic scenario for a builder pattern.
 
@@ -701,4 +701,4 @@ This combination of a generic slice struct and careful pointer manipulation allo
 
 So, where does this leave us? We started with a simple goal: to build a vector that doesn't waste memory for small integers. We discovered that a single unaligned read could be the key to outperforming a standard Vec in random access workloads. The conventional wisdom is that compression costs CPU cycles, but this proves it's not always true. Sometimes, by trading a few more instructions for better cache locality, we can get the best of both worlds: **less memory and more speed**.
 
-We've built a fast, memory-efficient, and ergonomic vector. But our work is only half-done. Everything we've discussed so far falls apart in a multi-threaded world. How do you atomically modify a value that doesn't even exist as a single unit in memory? We'll tackle that challenge in the next post
+We've built a fast, memory-efficient, and ergonomic vector. But our work is only half-done. Everything we've discussed so far falls apart in a multi-threaded world. How do you atomically modify a value that doesn't even exist as a single unit in memory? We'll tackle that challenge in the next post :)
