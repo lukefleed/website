@@ -1,7 +1,7 @@
 ---
 author: Luca Lombardo
-datetime: 2025-08-24
-title: Engineering a Fixed-Width bit-packed Integer Vector in Rust
+datetime: 2025-09-24
+title: Engineering a fixed-width bit-packed Integer Vector in Rust
 slug: compressed-fixedvec
 featured: true
 university: false
@@ -14,7 +14,7 @@ ogImage: "/assets/fixedvec.png"
 description: Design and implementation of a memory-efficient, fixed-width bit-packed integer vector in Rust, with extremely fast random access.
 ---
 
-If you've ever worked with massive integer datasets, you know that memory usage can quickly become a bottleneck. While developing succinct data structures, I found myself needing to store large arrays of integers—values with no monotonicity or other exploitable patterns, that I knew came from a universe much smaller than their type's theoretical capacity.
+If you've ever worked with massive datasets, you know that memory usage can quickly become a bottleneck. While developing succinct data structures, I found myself needing to store large arrays of integers—values with no monotonicity or other exploitable patterns, that I knew came from a universe much smaller than their type's theoretical capacity.
 
 In this post, we will explore the engineering challenges involved in implementing an efficient vector-like data structure in Rust that stores integers in a compressed, bit-packed format. We will focus on achieving O(1) random access performance while minimizing memory usage. We will try to mimic the ergonomics of Rust's standard `Vec<T>` as closely as possible, including support for mutable access and zero-copy slicing.
 
@@ -510,6 +510,11 @@ fn to_int(self) -> Self::SignedInt {
 ```
 
 Here, `(self >> 1)` shifts the value back. The term `-(self & 1)` creates a mask from the LSB (the original sign bit). In two's complement, this becomes `0` for even numbers (originally positive) and `-1` (all ones) for odd numbers (originally negative). The final XOR with this mask correctly restores the original two's complement representation.
+
+
+We might ask ourselves: why not just a direct bitcast for signed types, perhaps via a `uN -> iN` chain. Well, while a direct [transmute](https://doc.rust-lang.org/std/mem/fn.transmute.html) between same-sized integer types is a no-op, the approach fails when the logical `bit_width` is smaller than the physical type size. `FixedVec`'s core logic extracts a `bit_width`-sized unsigned integer from its storage. For example, when reading a 4-bit representation of `-1` (binary `1111`), the `from_word` function receives the value `15u64`. At this point, the context that those four bits represented a negative number is lost. A cast chain like `15u64 as u8 as i8` would simply yield `15i8`, not `-1i8`.
+
+To correctly reconstruct the signed value, one would need to manually perform sign extension based on the known `bit_width`. This involves checking the most significant bit of the extracted value and, if set, filling the higher-order bits of the word with ones. This logic requires a conditional branch, which can introduce pipeline stalls and degrade performance in tight loops. ZigZag decoding, by contrast, is a purely arithmetic, branch-free transformation. Its reconstruction logic is a simple sequence of bitwise shifts and XORs, making it a faster and more consistent choice for the hot path of data access.
 
 With this logic within the trait system, the main `FixedVec` implementation remains clean and agnostic to the signedness of the data it stores.
 

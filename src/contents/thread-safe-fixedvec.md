@@ -6,7 +6,7 @@ slug: thread-safe-fixedvec
 featured: true
 university: false
 posts: true
-draft: false
+draft: true
 tags:
   - Rust
   - Succinct Data Structures
