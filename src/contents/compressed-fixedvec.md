@@ -702,8 +702,24 @@ pub fn split_at_mut(&mut self, mid: usize) -> (FixedVecSlice<&mut Self>, FixedVe
 
 This combination of a generic slice struct and careful pointer manipulation allows us to build a rich, safe, and zero-copy API for both immutable and mutable views, mirroring Rust's native slice
 
-# Next Step: Concurrency
+# Next Steps
 
-So, where does this leave us? We started with a simple goal: to build a vector that doesn't waste memory for small integers. We discovered that a single unaligned read could be the key to outperforming a standard Vec in random access workloads. The conventional wisdom is that compression costs CPU cycles, but this proves it's not always true. Sometimes, by trading a few more instructions for better cache locality, we can get the best of both worlds: **less memory and more speed**.
+Our `FixedVec` works pretty well at the current state, but its strengths are tied to two key assumptions: a single thread of execution and uniformly bounded data. Real-world systems often challenge both. This opens up two distinct paths for us to extend our design: one to handle concurrency, and another to adapt to more complex data distributions.
 
-We've built a fast, memory-efficient, and ergonomic vector. But our work is only half-done. Everything we've discussed so far falls apart in a multi-threaded world. How do you atomically modify a value that doesn't even exist as a single unit in memory? We'll tackle that challenge in the next post :)
+## Concurrent Access
+
+The design of `FixedVec` is fundamentally single-threaded. Its mutable access relies on direct writes to the underlying bit buffer, a model that offers no guarantees in a concurrent setting. The core conflict lies between our data layout and the hardware's atomic primitives. CPU instructions like compare-and-swap operate on aligned machine words, typically `u64`. Our elements, however, are packed at arbitrary bit offsets and can span the boundary between two words.
+
+This means a single logical update—modifying one element—might require writing to two separate `u64` words. Performing this as two distinct atomic writes would create a race condition, leaving the data in a corrupt state if another thread reads between them. A single atomic write to one of the underlying `u64` words would be equally disastrous, as it could simultaneously alter parts of two different elements. The problem then is how to build atomic semantics on top of a non-atomic memory layout. In the next post, we will construct a solution that provides thread-safe, atomic operations for our bit-packed vector.
+
+## Variable Length Encoding
+
+Let's consider the following scenario: we have a large collection of integers, all of which are small, say in the range `[0, 255]`, but with a few outliers that are much larger, perhaps up to `u64::MAX`. If we were to use our `FixedVec` with a `bit_width` of 64 to accommodate the outliers, we would waste a significant amount of memory on the small integers. Conversely, if we chose a smaller `bit_width`, we would be unable to represent the outliers at all.
+
+The fixed-width model rests on that critical assumption of uniformly bounded data. Its performance comes from this predictability, but this rigid structure is also its main weakness.
+
+For skewed data distributions, we need a different model. Instead of a fixed number of bits per element, we can use variable-length instantaneous codes, where smaller numbers are represented by shorter bit sequences. This gives us excellent compression, but it breaks our O(1) random access guarantee. We can no longer compute the location of the i-th element with a simple multiplication. The solution is to trade a small amount of space for a speedup in access time. We can build a secondary index that stores the bit-offset of every k-th element. This sampling allows us to seek to a nearby checkpoint and decode sequentially from there, restoring amortized O(1) access. In a future article, we'll explore this second vector type, its own set of performance trade-offs, and how we can choose the best encoding for our data.
+
+---
+
+We will explore this two paths in future articles. In the meantime, if you want to try them out, they are both already implemented in the library. You can find the atomic version in the [atomic](https://docs.rs/compressed-intvec/latest/compressed_intvec/fixed/atomic/index.html) module and the variable-length version in the [variable](https://docs.rs/compressed-intvec/latest/compressed_intvec/variable/struct.IntVec.html) module.
