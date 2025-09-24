@@ -2,7 +2,7 @@ import type { APIRoute, MarkdownInstance } from "astro";
 import generateOgImage from "@utils/generateOgImage";
 import type { Frontmatter } from "@types";
 
-export const get: APIRoute = async ({ params }) => ({
+export const GET: APIRoute = async ({ params }) => ({
   body: await generateOgImage(params.ogTitle),
 });
 
