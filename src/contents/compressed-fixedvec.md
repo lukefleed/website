@@ -22,6 +22,8 @@ In this post, we will explore the engineering challenges involved in implementin
 * All the code can be found on github: [compressed-intvec](https://github.com/lukefleed/compressed-intvec)
 * This is also published as a crate on crates.io: [compressed-intvec](https://crates.io/crates/compressed-intvec)
 
+You can discuss this post on [Hacker News](https://news.ycombinator.com/item?id=45361578), [Lobsters](https://lobste.rs/s/u1rffj/engineering_fixed_width_bit_packed) or [Reddit](https://www.reddit.com/r/rust/comments/1npf41d/engineering_a_fixedwidth_bitpacked_integer_vector/).
+
 ---
 
 # Memory Waste in Standard Vectors
