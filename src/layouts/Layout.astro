@@ -92,27 +92,61 @@ const fallbackImageURL = new URL(SITE.ogImage, Astro.url.origin).href;
     }
 
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" integrity="sha384-XjKyOOlGwcjNTAIQHIpgOno0Hl1YQqzUOEleOLALmuqehneUG+vnGctmUb0ZY0l8" crossorigin="anonymous"></script>
-    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" integrity="sha384-+VBxd3r6XgURycqtZ117nYw44OOcIax56Z4dCRWbxyPt0Koah1uHoK0o4+/RRE05" crossorigin="anonymous" onload="renderMath()"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" integrity="sha384-+VBxd3r6XgURycqtZ117nYw44OOcIax56Z4dCRWbxyPt0Koah1uHoK0o4+/RRE05" crossorigin="anonymous"></script>
 
     <script is:inline>
+      // Safely render KaTeX on the page. We try multiple triggers and a
+      // MutationObserver so dynamically-inserted content (React, client
+      // components, etc.) also gets processed.
       function renderMath() {
-        if (typeof window.renderMathInElement !== 'undefined') {
-          window.renderMathInElement(document.body, {
-            delimiters: [
-              {left: '$$', right: '$$', display: true},
-              {left: '$', right: '$', display: false},
-              {left: '\\(', right: '\\)', display: false},
-              {left: '\\[', right: '\\]', display: true}
-            ],
-            throwOnError: false
-          });
+        if (typeof window.renderMathInElement === 'function') {
+          try {
+            window.renderMathInElement(document.body, {
+              delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false},
+                {left: '\\(', right: '\\)', display: false},
+                {left: '\\[', right: '\\]', display: true}
+              ],
+              throwOnError: false
+            });
+          } catch (err) {
+            // Don't break the page if KaTeX throws on some content
+            // (e.g. malformed TeX). Log to console for debugging.
+            // eslint-disable-next-line no-console
+            console.warn('KaTeX renderMathInElement failed:', err);
+          }
         }
       }
 
-      // Fallback per quando defer non funziona perfettamente
-      document.addEventListener("DOMContentLoaded", function() {
+      // Try after the page load (covers deferred scripts and images)
+      window.addEventListener('load', function () {
+        setTimeout(renderMath, 50);
+      });
+
+      // Also try on DOMContentLoaded as a fallback
+      document.addEventListener('DOMContentLoaded', function () {
         setTimeout(renderMath, 100);
       });
+
+      // Re-run KaTeX on DOM changes (useful for client-side rendered content)
+      if (typeof MutationObserver !== 'undefined') {
+        const observer = new MutationObserver((mutations) => {
+          if (typeof window.renderMathInElement !== 'function') return;
+          for (const m of mutations) {
+            if (m.addedNodes && m.addedNodes.length > 0) {
+              // A small debounce to avoid thrashing on large insertions
+              setTimeout(renderMath, 10);
+              break;
+            }
+          }
+        });
+        // Observe the whole body subtree
+        observer.observe(document.documentElement || document.body, {
+          childList: true,
+          subtree: true,
+        });
+      }
     </script>
 
 

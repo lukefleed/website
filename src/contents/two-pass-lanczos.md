@@ -47,16 +47,20 @@ For Hermitian matrices, the projection $\mathbf{H}_k$ must also be Hermitian. A 
 
 The Lanczos process builds the orthonormal basis through a three-term recurrence. Starting from $\mathbf{v}_1 = \mathbf{b}/\|\mathbf{b}\|_2$, each iteration computes:
 
-$$\beta_j \mathbf{v}_{j+1} = \mathbf{A}\mathbf{v}_j - \alpha_j \mathbf{v}_j - \beta_{j-1}\mathbf{v}_{j-1}$$
+$$
+\beta_j \mathbf{v}_{j+1} = \mathbf{A}\mathbf{v}_j - \alpha_j \mathbf{v}_j - \beta_{j-1}\mathbf{v}_{j-1}
+$$
 
 The scalars $\alpha_j = \mathbf{v}_j^H \mathbf{A} \mathbf{v}_j$ and $\beta_j = \|\mathbf{A}\mathbf{v}_j - \alpha_j \mathbf{v}_j - \beta_{j-1}\mathbf{v}_{j-1}\|_2$ define a symmetric tridiagonal matrix:
 
-$$\mathbf{T}_k = \begin{pmatrix}
+$$\mathbf{T}_k =
+\begin{pmatrix}
 \alpha_1 & \beta_1 & & \\
 \beta_1 & \alpha_2 & \ddots & \\
 & \ddots & \ddots & \beta_{k-1} \\
 & & \beta_{k-1} & \alpha_k
-\end{pmatrix}$$
+\end{pmatrix}
+$$
 
 The relation $\mathbf{A}\mathbf{V}_k = \mathbf{V}_k \mathbf{T}_k + \beta_k \mathbf{v}_{k+1} \mathbf{e}_k^T$ shows that $\mathbf{T}_k = \mathbf{V}_k^H \mathbf{A} \mathbf{V}_k$ is the projection. The approximation becomes:
 
