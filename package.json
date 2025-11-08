@@ -17,7 +17,6 @@
     "fuse.js": "^6.6.2",
     "github-slugger": "^2.0.0",
     "katex": "^0.16.22",
-    "rehype-katex": "^7.0.0",
     "remark-collapse": "^0.1.2",
     "remark-math": "^6.0.0",
     "remark-toc": "^9.0.0",
