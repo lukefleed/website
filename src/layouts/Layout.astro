@@ -1,7 +1,6 @@
 ---
 import { SITE } from "src/config";
 import "../styles/base.css";
-import "katex/dist/katex.min.css";
 
 const googleSiteVerification = import.meta.env.PUBLIC_GOOGLE_SITE_VERIFICATION;
 
@@ -90,6 +89,14 @@ const fallbackImageURL = new URL(SITE.ogImage, Astro.url.origin).href;
         />
       )
     }
+
+    <!-- KaTeX CSS -->
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.css"
+      integrity="sha384-jxFySRRZvZ1VYu0qnumGt9HrkcjY8sHPkx67t+KvtPDgZG1xeIMGDYtqYtGxKNI0"
+      crossorigin="anonymous"
+    />
 
     <script is:inline src="/toggle-theme.js"></script>
   </head>

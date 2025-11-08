@@ -456,13 +456,14 @@ Now that we have a working implementation we can run some tests. The core idea o
 
 For the data, we know that the performance of any Krylov method is tied to the operator's spectral properties. We need a way to generate a family of test problems where we can precisely control the size, sparsity, and numerical difficulty. A great way to do this is with Karush-Kuhn-Tucker (KKT) systems, which are sparse, symmetric, and have a specific block structure.
 
-$$A =
-\begin{pmatrix}
+$$
+A = \begin{pmatrix}
     D & E^T \\
     E & 0
-\end{pmatrix}$$
+\end{pmatrix}
+$$
 
-This structure gives us two critical knobs to turn. First, with the [netgen](https://commalab.di.unipi.it/files/Data/MCF/netgen.tgz) utility, we can control the E matrix, which lets us dial in the problem dimension, $n$. Second, we build the diagonal block D with random entries from a range $[1, C_D]$. This parameter, $C_D$, gives us direct control over the numerical difficulty of the problem.Let's look at how. For a symmetric matrix like $D$, the 2-norm condition number, $\kappa_2(D)$, is the ratio of its largest to its smallest eigenvalue: $\kappa_2(D) = \lambda_{\max}(D) / \lambda_{\min}(D)$. Since $D$ is diagonal, its eigenvalues are simply its diagonal entries. We are drawing these entries from a uniform distribution $U[1, C_D]$, so we have $\lambda_{\max}(D) \approx C_D$ and $\lambda_{\min}(D) \approx 1$. This means we get direct control: $\kappa_2(D) \approx C_D$.The spectral properties of this block heavily influence the spectrum of the entire matrix $A$. A large condition number in $D$ leads to a more ill-conditioned system for $A$. The convergence rate of Krylov methods like Lanczos is fundamentally governed by the distribution of the operator's eigenvalues. An ill-conditioned matrix, with a wide spread of eigenvalues, will require more iterations, $k$, to reach the desired accuracy. By simply adjusting the $C_D$ parameter, we can generate everything from well-conditioned problems that converge quickly to ill-conditioned ones that force us to run a large number of iterations. This is exactly what we need to rigorously test our implementation.
+This structure gives us two critical knobs to turn. First, with the [netgen](https://commalab.di.unipi.it/files/Data/MCF/netgen.tgz) utility, we can control the E matrix, which lets us dial in the problem dimension, $n$. Second, we build the diagonal block D with random entries from a range $[1, C_D]$. This parameter, $C_D$, gives us direct control over the numerical difficulty of the problem. Let's look at how. For a symmetric matrix like $D$, the 2-norm condition number, $\kappa_2(D)$, is the ratio of its largest to its smallest eigenvalue: $\kappa_2(D) = \lambda_{\max}(D) / \lambda_{\min}(D)$. Since $D$ is diagonal, its eigenvalues are simply its diagonal entries. We are drawing these entries from a uniform distribution $U[1, C_D]$, so we have $\lambda_{\max}(D) \approx C_D$ and $\lambda_{\min}(D) \approx 1$. This means we get direct control: $\kappa_2(D) \approx C_D$. The spectral properties of this block heavily influence the spectrum of the entire matrix $A$. A large condition number in $D$ leads to a more ill-conditioned system for $A$. The convergence rate of Krylov methods like Lanczos is fundamentally governed by the distribution of the operator's eigenvalues. An ill-conditioned matrix, with a wide spread of eigenvalues, will require more iterations, $k$, to reach the desired accuracy. By simply adjusting the $C_D$ parameter, we can generate everything from well-conditioned problems that converge quickly to ill-conditioned ones that force us to run a large number of iterations. This is exactly what we need to rigorously test our implementation.
 
 ## The Memory and Computation Trade-off
 

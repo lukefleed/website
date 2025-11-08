@@ -12,9 +12,7 @@ export default defineConfig({
   site: "https://lukefleed.xyz",
   integrations: [
     tailwind({
-      config: {
-        applyBaseStyles: false,
-      },
+      applyBaseStyles: false,
     }),
     react(),
     sitemap(),
@@ -30,7 +28,16 @@ export default defineConfig({
         },
       ],
     ],
-    rehypePlugins: [rehypeKatex],
+    rehypePlugins: [
+      [
+        rehypeKatex,
+        {
+          throwOnError: false,
+          trust: true,
+          strict: false,
+        },
+      ],
+    ],
     shikiConfig: {
       theme: "one-dark-pro",
       wrap: true,
