@@ -18,7 +18,7 @@ export default defineConfig({
   ],
   markdown: {
     remarkPlugins: [
-      remarkMath,
+      remarkMath, // MUST be first to process math blocks before other plugins
       remarkToc,
       [
         remarkCollapse,

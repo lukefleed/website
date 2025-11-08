@@ -96,8 +96,16 @@ const fallbackImageURL = new URL(SITE.ogImage, Astro.url.origin).href;
       // This imports "katex" only on the client side, in the user's browser
       import katex from 'katex'
 
+      console.log('[KaTeX] Script loaded, katex =', typeof katex)
+
       document.addEventListener('DOMContentLoaded', function () {
-        document.querySelectorAll('.math-inline').forEach($e => {
+        console.log('[KaTeX] DOMContentLoaded fired')
+
+        const inlineElements = document.querySelectorAll('.math-inline')
+        const displayElements = document.querySelectorAll('.math-display')
+        console.log('[KaTeX] Found', inlineElements.length, 'inline and', displayElements.length, 'display elements')
+
+        inlineElements.forEach($e => {
           const $s = document.createElement('span')
           $e.parentElement.insertBefore($s, $e)
 
@@ -111,7 +119,7 @@ const fallbackImageURL = new URL(SITE.ogImage, Astro.url.origin).href;
           $e.remove()
         })
 
-        document.querySelectorAll('.math-display').forEach($e => {
+        displayElements.forEach($e => {
           const $p = document.createElement('p')
           const $s = document.createElement('span')
           $p.appendChild($s)
@@ -127,6 +135,8 @@ const fallbackImageURL = new URL(SITE.ogImage, Astro.url.origin).href;
           $s.appendChild($e.firstChild)
           $e.remove()
         })
+
+        console.log('[KaTeX] Rendering complete')
       })
     </script>
 
