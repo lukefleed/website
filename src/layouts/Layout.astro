@@ -91,48 +91,6 @@ const fallbackImageURL = new URL(SITE.ogImage, Astro.url.origin).href;
       )
     }
 
-    <!-- KaTeX Rendering Script -->
-    <script>
-      // @ts-nocheck
-      // This imports "katex" only on the client side, in the user's browser
-      import katex from 'katex'
-
-      document.addEventListener('DOMContentLoaded', function () {
-        document.querySelectorAll('.math-inline').forEach($e => {
-          const $s = document.createElement('span')
-          $e.parentElement.insertBefore($s, $e)
-
-          katex.render($e.textContent, $e, {
-            throwOnError: false,
-            displayMode: false,
-            trust: true,
-          })
-
-          $s.appendChild($e.firstChild)
-          $e.remove()
-        })
-
-        document.querySelectorAll('.math-display').forEach($e => {
-          const $p = document.createElement('p')
-          const $s = document.createElement('span')
-          $p.appendChild($s)
-
-          $e.parentElement.insertBefore($p, $e)
-
-          katex.render($e.textContent, $e, {
-            throwOnError: false,
-            displayMode: true,
-            trust: true,
-          })
-
-          $s.appendChild($e.firstChild)
-          $e.remove()
-        })
-      })
-    </script>
-
-
-
     <script is:inline src="/toggle-theme.js"></script>
   </head>
   <body>
