@@ -25,7 +25,9 @@ The standard Lanczos method for computing matrix functions has a brutal memory r
 
 Let's consider the problem of computing the action of matrix functions on a vector:
 
-$$\mathbf{x} = f(\mathbf{A})\mathbf{b}$$
+$$
+\mathbf{x} = f(\mathbf{A})\mathbf{b}
+$$
 
 where $\mathbf{A}$ is a large sparse Hermitian matrix and $f$ is a matrix function defined on the spectrum of $\mathbf{A}$. This is a problem that appears pretty often in scientific computing: solving linear systems corresponds to $f(z) = z^{-1}$, exponential integrators for PDEs use $f(z) = \exp(tz)$, and many other problems require functions like $f(z) = z^{-1/2}$ or $f(z) = \text{sign}(z)$.
 
@@ -35,7 +37,9 @@ However we know that given any matrix function $f$ defined on the spectrum of $\
 
 This gives a good and a bad news: the good news is that, well, we can express $f(\mathbf{A})$ as a polynomial in $\mathbf{A}$. The bad news is that the degree of this polynomial can be as high as $n$, which is huge for large problems. The idea is then to find a low-degree polynomial approximation to $f$ that is "good enough" for our purposes. If we can find a polynomial $p_k$ of degree $k \ll n$ such that $p_k(\mathbf{A}) \approx f(\mathbf{A})$, then we can approximate the solution as:
 
-$$f(\mathbf{A})\mathbf{b} \approx p_k(\mathbf{A})\mathbf{b} = \sum_{i=0}^k c_i \mathbf{A}^i \mathbf{b}$$
+$$
+f(\mathbf{A})\mathbf{b} \approx p_k(\mathbf{A})\mathbf{b} = \sum_{i=0}^k c_i \mathbf{A}^i \mathbf{b}
+$$
 
 
 
@@ -43,7 +47,9 @@ $$f(\mathbf{A})\mathbf{b} \approx p_k(\mathbf{A})\mathbf{b} = \sum_{i=0}^k c_i \
 
 We notice that the polynomial approximation only involves vectors that lie in the following space, called the Krylov subspace of order $k$:
 
-$$\mathcal{K}_k(\mathbf{A}, \mathbf{b}) = \text{span}\{\mathbf{b}, \mathbf{Ab}, \mathbf{A}^2\mathbf{b}, \ldots, \mathbf{A}^{k-1}\mathbf{b}\}$$
+$$
+\mathcal{K}_k(\mathbf{A}, \mathbf{b}) = \text{span}\{\mathbf{b}, \mathbf{Ab}, \mathbf{A}^2\mathbf{b}, \ldots, \mathbf{A}^{k-1}\mathbf{b}\}
+$$
 
 We can then search the approximate solution $\mathbf{x}_k$ in this subspace by just doing matrix-vector products with $\mathbf{A}$. This is great because it's the only operation we can do efficiently for large sparse matrices.
 
@@ -55,7 +61,9 @@ Technically, we already have a basis for this space. The raw vectors $\{\mathbf{
 
 We start by normalizing our initial vector, $\mathbf{v}_1 = \mathbf{b} / \|\mathbf{b}\|_2$. The process is iterative. At each step $j$, we first create a new candidate vector by applying the operator, $\mathbf{w}_j = \mathbf{A}\mathbf{v}_j$. Next, we make it orthogonal to our existing basis vectors $\mathbf{v}_1, \ldots, \mathbf{v}_j$ using the Gram-Schmidt procedure. This involves subtracting the projections:
 
-$$\tilde{\mathbf{v}}_j = \mathbf{w}_j - \sum_{i=1}^j (\mathbf{v}_i^H \mathbf{w}_j) \mathbf{v}_i$$
+$$
+\tilde{\mathbf{v}}_j = \mathbf{w}_j - \sum_{i=1}^j (\mathbf{v}_i^H \mathbf{w}_j) \mathbf{v}_i
+$$
 
 The coefficients we compute here, $h_{ij} = \mathbf{v}_i^H \mathbf{w}_j = \mathbf{v}_i^H \mathbf{A} \mathbf{v}_j$, become the entries of our projected matrix. Finally, we normalize the new vector to get the next basis vector, where $h_{j+1, j} = \|\tilde{\mathbf{v}}_j\|_2$ and $\mathbf{v}_{j+1} = \tilde{\mathbf{v}}_j / h_{j+1, j}$.
 
@@ -68,15 +76,21 @@ After $k$ steps, we end up with
 
 We can summarize the whole process with the matrix formulation known as the Arnoldi decomposition:
 
-$$\mathbf{A}\mathbf{V}_k = \mathbf{V}_k \mathbf{H}_k + h_{k+1,k} \mathbf{v}_{k+1} \mathbf{e}_k^T$$
+$$
+\mathbf{A}\mathbf{V}_k = \mathbf{V}_k \mathbf{H}_k + h_{k+1,k} \mathbf{v}_{k+1} \mathbf{e}_k^T
+$$
 
 How do we use this to approximate our original problem? Well it depends on what we consider a "good" approximation. For this blog post we'll just consider Full Orthogonal Method (FOM), which enforce that the residual $\mathbf{r}_k = f(\mathbf{A})\mathbf{b} - \mathbf{x}_k$ is orthogonal to the Krylov subspace. Therefore, we can express the approximate solution as:
 
-$$\mathbf{x}_k = \mathbf{V}_k \mathbf{y}_k$$
+$$
+\mathbf{x}_k = \mathbf{V}_k \mathbf{y}_k
+$$
 
 where $\mathbf{y}_k$ is a small $k$-dimensional vector that we need to compute as
 
-$$\mathbf{y}_k = f(\mathbf{H}_k) \mathbf{e}_1 \|\mathbf{b}\|_2$$
+$$
+\mathbf{y}_k = f(\mathbf{H}_k) \mathbf{e}_1 \|\mathbf{b}\|_2
+$$
 
 > The term $\mathbf{e}_1 \|\mathbf{b}\|_2$ comes from the fact that our initial vector $\mathbf{v}_1$ is $\mathbf{b}$ normalized. In the Krylov subspace, this corresponds to the first basis vector scaled by the norm of $\mathbf{b}$. This is just the projection of $\mathbf{b}$ onto the Krylov subspace.
 
@@ -87,7 +101,9 @@ This problems is now reduced to computing $f(\mathbf{H}_k)$, which is a small $k
 <!--
 If we left-multiply by $\mathbf{V}_k^H$, we see that $\mathbf{H}_k = \mathbf{V}_k^H \mathbf{A} \mathbf{V}_k$. This is the key: $\mathbf{H}_k$ is the projection of the huge operator $\mathbf{A}$ onto our small Krylov subspace. We can now approximate our original problem by solving it in this small space:
 
-$$\mathbf{x}_k = \|\mathbf{b}\|_2 \mathbf{V}_k f(\mathbf{H}_k) \mathbf{e}_1$$
+$$
+\mathbf{x}_k = \|\mathbf{b}\|_2 \mathbf{V}_k f(\mathbf{H}_k) \mathbf{e}_1
+$$
 
 This is a huge win. We've turned a problem of dimension $n$ into one of dimension $k$, which is cheap to solve.
 
@@ -103,43 +119,61 @@ In the literature we refer to this projected matrix as $\mathbf{T}_k$ instead of
 
 Let's re-write the Arnoldi decomposition for this case:
 
-$$\mathbf{A}\mathbf{V}_k = \mathbf{V}_k \mathbf{T}_k + \beta_k \mathbf{v}_{k+1} \mathbf{e}_k^T$$
+$$
+\mathbf{A}\mathbf{V}_k = \mathbf{V}_k \mathbf{T}_k + \beta_k \mathbf{v}_{k+1} \mathbf{e}_k^T
+$$
 
 We can extract the $j$-th column from this matrix equation. On the left, we have $\mathbf{A}\mathbf{v}_j$. On the right, we need the $j$-th column of the whole expression. The second term, $\beta_k \mathbf{v}_{k+1} \mathbf{e}_k^T$, only affects the final column ($j=k$), so for now let's assume $j < k$. For the right-end-side for the equation we can exploit the tridiagonal structure of $\mathbf{T}_k$ to simplify the expression:
 
-$$\mathbf{V}_k (\mathbf{T}_k \mathbf{e}_j) = \beta_{j-1} \mathbf{v}_{j-1} + \alpha_j \mathbf{v}_j + \beta_j \mathbf{v}_{j+1}$$
+$$
+\mathbf{V}_k (\mathbf{T}_k \mathbf{e}_j) = \beta_{j-1} \mathbf{v}_{j-1} + \alpha_j \mathbf{v}_j + \beta_j \mathbf{v}_{j+1}
+$$
 
 Thus, we get the famous **Lanczos three-term recurrence**:
 
-$$\mathbf{A}\mathbf{v}_j = \beta_{j-1}\mathbf{v}_{j-1} + \alpha_j \mathbf{v}_j + \beta_j \mathbf{v}_{j+1}$$
+$$
+\mathbf{A}\mathbf{v}_j = \beta_{j-1}\mathbf{v}_{j-1} + \alpha_j \mathbf{v}_j + \beta_j \mathbf{v}_{j+1}
+$$
 
 The crucial detail to notice here is that to generate the next basis vector $\mathbf{v}_{j+1}$, we only need the two previous vectors, $\mathbf{v}_j$ and $\mathbf{v}_{j-1}$. We don't need to orthogonalize against the entire history of the basis, because the Hermitian nature of $\mathbf{A}$ guarantees that the new vector is already orthogonal to all vectors $\mathbf{v}_1, \ldots, \mathbf{v}_{j-2}$.
 
 So as before, we can determine the coefficients directly from this recurrence. By rearranging it, we get an expression for the unnormalized next vector:
 
-$$w_{j+1} = \mathbf{A}\mathbf{v}_j$$
+$$
+w_{j+1} = \mathbf{A}\mathbf{v}_j
+$$
 
 Then we compute the first component along $v_j$:
 
-$$\alpha_j = \mathbf{v}_j^H w_{j+1}$$
+$$
+\alpha_j = \mathbf{v}_j^H w_{j+1}
+$$
 
 This will be the diagonal element of the matrix. Now we subtract the component along $v_j$ and $v_{j-1}$ (that we know from the previous step):
 
-$$\tilde{\mathbf{v}}_{j+1} = w_{j+1} - \alpha_j \mathbf{v}_j - \beta_{j-1}\mathbf{v}_{j-1}$$
+$$
+\tilde{\mathbf{v}}_{j+1} = w_{j+1} - \alpha_j \mathbf{v}_j - \beta_{j-1}\mathbf{v}_{j-1}
+$$
 
 This vector is orthogonal to both $\mathbf{v}_j$ and $\mathbf{v}_{j-1}$ for construction, and the tridiagonal property guarantees it's orthogonal to all previous vectors. Finally, we normalize it to get the next basis vector:
 
-$$\beta_j = \|\tilde{\mathbf{v}}_{j+1}\|_2 \qquad \mathbf{v}_{j+1} = \frac{\tilde{\mathbf{v}}_{j+1}}{\beta_j}$$
+$$
+\beta_j = \|\tilde{\mathbf{v}}_{j+1}\|_2 \qquad \mathbf{v}_{j+1} = \frac{\tilde{\mathbf{v}}_{j+1}}{\beta_j}
+$$
 
 ## The Memory Bottleneck
 
 After $k$ iterations of this process, we end up with as before with two matrices: $\mathbf{V}_k \in \mathbb{C}^{n \times k}$ and the tridiagonal matrix $\mathbf{T}_k \in \mathbb{R}^{k \times k}$. The approximate solution is still given by:
 
-$$\mathbf{x}_k = \mathbf{V}_k \mathbf{y}_k = \sum_{j=1}^k (\mathbf{y}_k)_j \mathbf{v}_j$$
+$$
+\mathbf{x}_k = \mathbf{V}_k \mathbf{y}_k = \sum_{j=1}^k (\mathbf{y}_k)_j \mathbf{v}_j
+$$
 
 where
 
-$$\mathbf{y}_k = f(\mathbf{T}_k) \mathbf{e}_1 \|\mathbf{b}\|_2$$
+$$
+\mathbf{y}_k = f(\mathbf{T}_k) \mathbf{e}_1 \|\mathbf{b}\|_2
+$$
 
 This sum requires that all basis vectors $\mathbf{v}_j$ are stored in memory. There is a clear timing problem here: the coefficients $\mathbf{y}_k$ depends on the full $\mathbf{T}_k$, which only becomes available after $k$ iterations. Therefore, we cannot accumulate the solution $\mathbf{x}_k$ as we go. We have to wait until the end, when all basis vectors are already computed and stored.
 
@@ -160,13 +194,17 @@ We begin with $\beta_0 = 0$ and $\mathbf{v}_0 = \mathbf{0}$. As before, we initi
 
 At the end of the first pass, we have the tridiagonal matrix $\mathbf{T}_k$ defined by the stored scalars $\{\alpha_j, \beta_j\}$. We can then compute the small problem:
 
-$$\mathbf{y}_k = f(\mathbf{T}_k) \mathbf{e}_1 \|\mathbf{b}\|_2$$
+$$
+\mathbf{y}_k = f(\mathbf{T}_k) \mathbf{e}_1 \|\mathbf{b}\|_2
+$$
 
 ## Second pass
 
 With the coefficients $\mathbf{y}_k$ computed, we proceed to the second pass. Here, we regenerate the basis vectors $\mathbf{v}_j$ one at a time using the stored scalars $\{\alpha_j, \beta_j\}$ and the Lanczos recurrence relation that we derived earlier. While regenerating each basis vector, we immediately accumulate its contribution to the solution $\mathbf{x}_k$:
 
-$$\mathbf{x}_k \gets \mathbf{x}_k + (\mathbf{y}_k)_j \mathbf{v}_j$$
+$$
+\mathbf{x}_k \gets \mathbf{x}_k + (\mathbf{y}_k)_j \mathbf{v}_j
+$$
 
 Then, we discard $\mathbf{v}_j$ and move on to the next one. This way, we never need to store the full basis in memory. There are two important details to note:
 
