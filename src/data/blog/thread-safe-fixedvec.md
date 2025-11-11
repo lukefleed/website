@@ -17,6 +17,8 @@ This is the second post of a series on how to build a memory-efficient vector in
 * All the code can be found on github: [compressed-intvec](https://github.com/lukefleed/compressed-intvec)
 * This is also published as a crate on crates.io: [compressed-intvec](https://crates.io/crates/compressed-intvec)
 
+## Table of Contents
+
 In the [first post]([link-to-part-1](https://lukefleed.xyz/posts/compressed-fixedvec/)), we built `FixedVec`, a bit-packed integer vector that gives us O(1) random access while using a fraction of the memory of a standard `Vec<T>`. We worked through the core problem of reading bit-packed data, and saw how a single unaligned memory read could let us efficiently handle values that span across 64-bit word boundaries. We ended up with a solid, fast data structure complete with a clean, ergonomic API.
 
 So, we have a great single-threaded vector. But what happens when we need to share it between threads? The natural next step is to build an `AtomicFixedVec` with an API that feels like Rust's standard atomics: `load`, `store`, `fetch_add`, and so on.

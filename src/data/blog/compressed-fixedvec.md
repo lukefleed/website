@@ -23,6 +23,8 @@ You can discuss this post on [Hacker News](https://news.ycombinator.com/item?id=
 
 ---
 
+## Table of contents
+
 # Memory Waste in Standard Vectors
 
 In Rust, the contract of a `Vec<T>` (where `T` is a primitive integer type like `u64` or `i32`) is simple: O(1) random access in exchange for a memory layout that is tied to the static size of `T`. This is a good trade-off, until it isn't. When the dynamic range of the stored values is significantly smaller than the type's capacity, this memory layout leads to substantial waste.

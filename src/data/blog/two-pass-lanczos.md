@@ -18,6 +18,8 @@ The standard Lanczos method for computing matrix functions has a brutal memory r
 
 ---
 
+## Table of Contents
+
 # Computing Matrix Functions
 
 Let's consider the problem of computing the action of matrix functions on a vector:

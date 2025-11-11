@@ -80,6 +80,17 @@
       @apply border-s-accent/80 break-words opacity-80;
     }
 
+    /* Remove default opening/closing quote pseudo-elements which Tailwind Typography
+       inserts via ::before/::after. This makes markdown '>' blockquotes render
+       without decorative quotation marks. */
+    blockquote::before,
+    blockquote::after,
+    blockquote p::before,
+    blockquote p::after {
+      /* Tailwind can't @apply `content: none`, so use raw CSS */
+      content: none !important;
+    }
+
     details {
       @apply inline-block cursor-pointer text-foreground select-none;
 
