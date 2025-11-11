@@ -751,3 +751,5 @@ Well, that's it. If you want to have a better look at the code or use it, it's a
 
 * [Github Repository](https://github.com/lukefleed/two-pass-lanczos)
 * [LaTeX Report](https://github.com/lukefleed/two-pass-lanczos/blob/main/report/report.pdf)
+
+This was more of an exploration than a production-ready library, so expect rough edges. But I hope it gives an interesting perspective on how algorithm engineering and low-level implementation details can alter what seems like a straightforward trade-off on a blackboard.
