@@ -697,13 +697,13 @@ We measure the algorithm against two hypotheses on a large sparse problem with $
 
 ### Memory Usage
 
-![Memory vs Iterations](/public/assets/lanczos/tradeoff_arcs500k_rho3_memory.png)
+![Memory vs Iterations](/assets/lanczos/tradeoff_arcs500k_rho3_memory.png)
 
 The memory data confirms Hypothesis 1 exactly. The one-pass method's footprint scales as a straight line—each additional iteration adds one vector to the basis. The two-pass method remains flat. No allocation growth happens after initialization.
 
 ### Runtime: Where Theory Breaks
 
-![Runtime vs Iterations](/public/assets/lanczos/tradeoff_arcs500k_rho3_time.png)
+![Runtime vs Iterations](/assets/lanczos/tradeoff_arcs500k_rho3_time.png)
 
 The runtime data contradicts Hypothesis 2. The two-pass method is slower, but never by a factor of two. For small $k$, the gap is minimal. As $k$ grows, the two-pass runtime diverges slowly from the one-pass method, not by doubling, but by a much smaller margin.
 
@@ -717,8 +717,8 @@ The cost of re-computing basis vectors is less than the latency cost of scanning
 
 ### Medium-Scale Behavior
 
-![Medium Scale Runtime vs Iterations](/public/assets/lanczos/tradeoff_arcs50k_rho3_time.png)
-![Medium Scale Memory Usage vs Iterations](/public/assets/lanczos/tradeoff_arcs50k_rho3_memory.png)
+![Medium Scale Runtime vs Iterations](/assets/lanczos/tradeoff_arcs50k_rho3_time.png)
+![Medium Scale Memory Usage vs Iterations](/assets/lanczos/tradeoff_arcs50k_rho3_memory.png)
 
 At $n=50,000$ we can observe an equilibrium. The two methods have nearly identical runtime. The standard method's $\mathbf{V}_k$ matrix is smaller; it fits partially in cache. The cache-miss penalty here becomes manageable. The two-pass method still has the advantage of cache-local accumulation, but the difference is marginal.
 
@@ -726,7 +726,7 @@ At $n=50,000$ we can observe an equilibrium. The two methods have nearly identic
 
 To be sure of our hypothesis, we can test it directly using a dense matrix of size $n=10,000$. For dense problems, the matrix-vector product is $O(n^2)$, it dominates all other costs. Memory latency will become negligible relative to the compute work and the cache efficiency advantage should disappear.
 
-![Dense Matrix Runtime vs Iterations](/public/assets/lanczos/dense-tradeoff.png)
+![Dense Matrix Runtime vs Iterations](/assets/lanczos/dense-tradeoff.png)
 
 We can see that the two-pass method runs almost exactly twice as slow as the one-pass method. The slope ratio is _exactly_ 2:1. In a compute-bound regime, the extra matrix-vector products cannot be hidden by cache effects. Here, the theoretical trade-off holds perfectly.
 
@@ -734,12 +734,12 @@ We can see that the two-pass method runs almost exactly twice as slow as the one
 
 Now, let's fix the iteration count at $k=500$ and vary $n$ from $50,000$ to $500,000$ to measure scalability. Based on what we have seen before, we would expect the two-pass memory to scale linearly with $n$ but with a small constant factor (three vectors, plus scalars). The one-pass method should also scale linearly, but with a $k$-dependent slope.
 
-![Scalability Memory Usage](/public/assets/lanczos/scalability_k500_rho3_memory.png)
+![Scalability Memory Usage](/assets/lanczos/scalability_k500_rho3_memory.png)
 
 Here we have to use a logarithmic y-axis to show both curves; the two-pass line is so flat relative to the one-pass line that it's otherwise invisible.
 
 
-![Scalability Runtime](/public/assets/lanczos/scalability_k500_rho3_time.png)
+![Scalability Runtime](/assets/lanczos/scalability_k500_rho3_time.png)
 
 Runtime scales linearly with $n$ for both methods, as expected. Below $n=150,000$, the two methods have similar performance. This is the regime where both basis and working set fit in cache, or where the problem is small enough that memory latency is not the bottleneck.
 
