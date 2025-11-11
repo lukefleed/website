@@ -1,6 +1,6 @@
 ---
 author: Luca Lombardo
-pubDatetime: 2025-09-16T00:00:00Z
+pubDatetime: 2025-11-11T00:00:00Z
 title: Cache-Friendly, Low-Memory Lanczos Algorithm in Rust
 slug: cache-friendly-low-memory-lanczos
 featured: true
