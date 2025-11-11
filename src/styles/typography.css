@@ -1,6 +1,7 @@
 @plugin '@tailwindcss/typography';
 
 @layer base {
+
   /* ===== Override default Tailwind Typography styles ===== */
   .app-prose {
     @apply prose;
@@ -52,6 +53,7 @@
     }
 
     table {
+
       th,
       td {
         @apply border border-border p-2;
@@ -79,7 +81,15 @@
     }
 
     details {
-      @apply inline-block cursor-pointer text-foreground select-none [&_p]:hidden [&_ul]:!my-0;
+      @apply inline-block cursor-pointer text-foreground select-none;
+
+      & p {
+        @apply hidden;
+      }
+
+      & ul {
+        @apply !my-0;
+      }
     }
 
     summary {
@@ -88,6 +98,11 @@
 
     pre {
       @apply focus-visible:border-transparent focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-dashed;
+    }
+
+    /* KaTeX text color */
+    .katex-display {
+      @apply text-foreground;
     }
   }
 
@@ -106,12 +121,15 @@
     .line.diff.add {
       @apply relative inline-block w-full bg-green-400/20 before:absolute before:-left-3 before:text-green-500 before:content-['+'];
     }
+
     .line.diff.remove {
       @apply relative inline-block w-full bg-red-500/20 before:absolute before:-left-3 before:text-red-500 before:content-['-'];
     }
+
     .line.highlighted {
       @apply inline-block w-full bg-slate-400/20;
     }
+
     .highlighted-word {
       @apply rounded-sm border border-border px-0.5 py-px;
     }
