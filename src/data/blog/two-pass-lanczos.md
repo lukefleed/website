@@ -7,7 +7,7 @@ featured: true
 draft: false
 tags:
   - Rust
-  - numerical-analysis
+  - Scientific Computing
 description: Implementing a cache-friendly, low-memory two-pass Lanczos algorithm in Rust, focusing on efficient memory access patterns and minimal allocations.
 ---
 
@@ -19,6 +19,7 @@ The standard Lanczos method for computing matrix functions has a brutal memory r
 ---
 
 ## Table of Contents
+
 
 # Computing Matrix Functions
 

@@ -6,8 +6,7 @@ slug: nummarkov
 featured: false
 draft: false
 tags:
-  - Numerical Analysis
-  - Math
+  - Scientific Computing
 ogImage: ""
 description: Slides for a seminar on the topic of numerical methods for Markov Chains
 ---

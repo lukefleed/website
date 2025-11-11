@@ -8,7 +8,6 @@ draft: true
 tags:
   - Rust
   - Succinct Data Structures
-  - HPC
 description: Engineering a thread-safe, bit-packed integer vector in Rust, using a hybrid model of lock-free and lock-based concurrency to handle operations that span hardware word boundaries.
 ---
 

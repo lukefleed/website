@@ -6,9 +6,7 @@ slug: small-worlds
 featured: false
 draft: false
 tags:
-  - Graph Theory
   - Algorithms and Data Structures
-  - Python
 ogImage: ""
 description: Spatial Networks and small words, an experimental study on real-world datasets. Developed in Python with parallel processing support for the computation of the heaviest functions.
 ---

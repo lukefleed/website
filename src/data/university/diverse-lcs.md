@@ -6,7 +6,7 @@ slug: diverse-lcs
 featured: false
 draft: false
 tags:
-  - algorithms-and-data-structures
+  - Algorithms and Data Structures
 ogImage: ""
 description: Slides for a seminar in bioinformatics.
 ---

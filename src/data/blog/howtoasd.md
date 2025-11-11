@@ -8,7 +8,6 @@ draft: true
 tags:
   - Competitive Programming
   - Algorithms and Data Structures
-  - Python
 description: An incomplete summary of the most important algorithms and data structures to remember before a coding interview
 ---
 

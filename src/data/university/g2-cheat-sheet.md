@@ -7,7 +7,6 @@ featured: false
 draft: false
 tags:
   - Math
-  - LaTeX
 ogImage: ""
 description: 🇮🇹 Versione compatta senza dimostrazioni delle dispense di Geometria 2 di Francesco Sorce.
 ---

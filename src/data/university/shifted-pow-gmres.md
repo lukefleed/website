@@ -6,9 +6,7 @@ slug: shifted-pow-gmres
 featured: false
 draft: false
 tags:
-  - Numerical Analysis
-  - Graph Theory
-  - Python
+  - Scientific Computing
 ogImage: ""
 description: Implementation of the shifted power method and the shifted GMRES method
 ---
