@@ -43,7 +43,7 @@ const recentPosts = sortedPosts.filter(({ data }) => !data.featured);
       </a> -->
 
       <p class="mb-4">
-        <span id="typewriter"></span><span id="cursor" class="animate-pulse">|</span>
+        <span class="text-accent">❯</span> <span id="typewriter"></span><span id="cursor" class="animate-pulse">|</span>
       </p>
 
       <p>
@@ -140,7 +140,7 @@ const recentPosts = sortedPosts.filter(({ data }) => !data.featured);
   const phrases = [
     "I'm a mathematician",
     "I'm a computer scientist",
-    "I'm a mathematician who turned to the dark side"
+    "I'm a mathematician who turned to the dark side of computer science",
   ];
 
   const typewriterEl = document.getElementById("typewriter");
