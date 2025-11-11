@@ -67,6 +67,15 @@ html[data-theme="dark"] {
   @apply underline decoration-wavy decoration-2 underline-offset-4;
 }
 
+/* Profile image with circular frame and colored border */
+.profile-image {
+  width: 250px;
+  height: 250px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--color-accent);
+}
+
 /* Source: https://piccalil.li/blog/a-more-modern-css-reset/ */
 /* Anything that has been anchored to should have extra scroll margin */
 :target {
