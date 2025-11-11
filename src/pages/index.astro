@@ -14,10 +14,12 @@ import { SITE } from "@/config";
 import { SOCIALS } from "@/constants";
 
 const posts = await getCollection("blog");
+const universityPosts = await getCollection("university");
 
 const sortedPosts = getSortedPosts(posts);
-const featuredPosts = sortedPosts.filter(({ data }) => data.featured);
-const recentPosts = sortedPosts.filter(({ data }) => !data.featured);
+const sortedUniversityPosts = getSortedPosts(universityPosts);
+const recentBlogPosts = sortedPosts;
+const recentUniversityPosts = sortedUniversityPosts.slice(0, 3);
 ---
 
 <Layout>
@@ -88,30 +90,31 @@ const recentPosts = sortedPosts.filter(({ data }) => !data.featured);
     <Hr />
 
     {
-      featuredPosts.length > 0 && (
-        <>
-          <section id="featured" class="pt-12 pb-6">
-            <h2 class="text-2xl font-semibold tracking-wide">Featured</h2>
-            <ul>
-              {featuredPosts.map(data => (
-                <Card variant="h3" {...data} />
-              ))}
-            </ul>
-          </section>
-          {recentPosts.length > 0 && <Hr />}
-        </>
+      recentBlogPosts.length > 0 && (
+        <section id="recent-posts" class="pt-12 pb-6">
+          <h2 class="text-2xl font-semibold tracking-wide">Recent Posts</h2>
+          <ul>
+            {recentBlogPosts.map(
+              (data, index: number) =>
+                index < SITE.postPerIndex && <Card variant="h3" {...data} />
+            )}
+          </ul>
+        </section>
       )
     }
 
     {
-      recentPosts.length > 0 && (
-        <section id="recent-posts" class="pt-12 pb-6">
-          <h2 class="text-2xl font-semibold tracking-wide">Recent Posts</h2>
+      recentUniversityPosts.length > 0 && <Hr />
+    }
+
+    {
+      recentUniversityPosts.length > 0 && (
+        <section id="university" class="pt-12 pb-6">
+          <h2 class="text-2xl font-semibold tracking-wide">University</h2>
           <ul>
-            {recentPosts.map(
-              (data, index) =>
-                index < SITE.postPerIndex && <Card variant="h3" {...data} />
-            )}
+            {recentUniversityPosts.map(data => (
+              <Card variant="h3" {...data} />
+            ))}
           </ul>
         </section>
       )

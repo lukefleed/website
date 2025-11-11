@@ -1,11 +1,9 @@
 ---
 author: Luca Lombardo
-datetime: 2022-12-27
+pubDatetime: 2022-12-27T00:00:00Z
 title: Methods for solving PageRank with multiple damping factors
-slug: ShiftedPowGMRES
-featured: true
-university: true
-posts: false
+slug: shifted-pow-gmres
+featured: false
 draft: false
 tags:
   - Numerical Analysis

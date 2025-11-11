@@ -1,11 +1,9 @@
 ---
 author: Luca Lombardo
-datetime: 2023-04-04
+pubDatetime: 2023-04-04T00:00:00Z
 title: Queueing System with Potential for Recruiting Secondary Servers
-slug: NumMarkov
+slug: nummarkov
 featured: false
-university: true
-posts: false
 draft: false
 tags:
   - Numerical Analysis

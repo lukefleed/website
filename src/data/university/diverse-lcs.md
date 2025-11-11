@@ -1,11 +1,9 @@
 ---
 author: Luca Lombardo
-datetime: 2024-12-14
+pubDatetime: 2024-12-14T00:00:00Z
 title: Finding Diverse Strings and Longest Common Sequences in a Graph
-slug: DiverseLCS
+slug: diverse-lcs
 featured: false
-university: true
-posts: false
 draft: false
 tags:
   - algorithms-and-data-structures

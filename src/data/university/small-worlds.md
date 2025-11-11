@@ -1,11 +1,9 @@
 ---
 author: Luca Lombardo
-datetime: 2023-02-24
+pubDatetime: 2023-02-24T00:00:00Z
 title: Identifying small worlds networks
 slug: small-worlds
-featured: true
-university: true
-posts: false
+featured: false
 draft: false
 tags:
   - Graph Theory

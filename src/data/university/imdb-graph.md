@@ -1,8 +1,14 @@
 ---
+author: Luca Lombardo
+pubDatetime: 2022-04-26T00:00:00Z
 title: "An exact and fast algorithm for computing top-k closeness centrality"
+slug: imdb-graph
+featured: false
+draft: false
+tags:
+  - Graph Theory
+ogImage: ""
 description: "An exact and fast algorithm for computing top-k closeness centrality, tested on the IMDb dataset"
-pubDate: 2022-04-26
-tags: ["Graph Theory"]
 ---
 
 The explanation of this algorithm and all its analysis can be found in the project report: [view](https://github.com/lukefleed/imdb-graph/blob/main/tex/src/main.pdf) / [download](https://github.com/lukefleed/imdb-graph/raw/main/tex/src/main.pdf)
