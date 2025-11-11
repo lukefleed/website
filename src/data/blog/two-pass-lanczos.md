@@ -319,54 +319,25 @@ There is one detail worth noting: floating-point arithmetic is deterministic. Wh
 However, the order in which we accumulate the solution differs. In a standard Lanczos,
 $\mathbf{x}_k$ is built as a single matrix-vector product: $\mathbf{x}_k = \mathbf{V}_k \mathbf{y}_k$ (a `gemv` call in BLAS). In the two-pass method, it's built as a loop of scaled vector additions (a series of `axpy` calls). These operations accumulate rounding error differently, so the final solution differs slightly, typically by machine epsilon. This rarely matters in practice, and convergence is unaffected.
 
-<!-- # Two-Pass Algorithm
-
-To avoid storing the full basis $\mathbf{V}_k$, we can divide the Lanczos process into two separate passes over the data. The idea is to first run the Lanczos iterations to compute and store only the tridiagonal matrix $\mathbf{T}_k$ (i.e., the scalars $\alpha_j$ and $\beta_j$), and then in a second pass, regenerate the basis vectors $\mathbf{v}_j$ one at a time to accumulate the final solution $\mathbf{x}_k$.
-
-This takes the memory complexity down to $O(n)$, since at any point in time we only need to keep a few vectors in memory. However, it comes at the cost of doubling the number of matrix-vector products with $\mathbf{A}$, since we need to apply $\mathbf{A}$ once in each pass.
-
-## First pass
-
-We begin with $\beta_0 = 0$ and $\mathbf{v}_0 = \mathbf{0}$. As before, we initialize $\mathbf{v}_1 = \mathbf{b} / \|\mathbf{b}\|_2$. The Lanczos recurrence proceeds as usual for $k$ steps, computing the scalars $\alpha_j$ and $\beta_j$ at each iteration. However, instead of storing the basis vectors $\mathbf{v}_j$, we discard them after use. This means that at any point in time, we only need to keep in memory the two most recent basis vectors, $\mathbf{v}_j$ and $\mathbf{v}_{j-1}$, along with a work vector for the matrix-vector product.
-
-At the end of the first pass, we have the tridiagonal matrix $\mathbf{T}_k$ defined by the stored scalars $\{\alpha_j, \beta_j\}$. We can then compute the small problem:
-
-$$
-\mathbf{y}_k = f(\mathbf{T}_k) \mathbf{e}_1 \|\mathbf{b}\|_2
-$$
-
-## Second pass
-
-With the coefficients $\mathbf{y}_k$ computed, we proceed to the second pass. Here, we regenerate the basis vectors $\mathbf{v}_j$ one at a time using the stored scalars $\{\alpha_j, \beta_j\}$ and the Lanczos recurrence relation that we derived earlier. While regenerating each basis vector, we immediately accumulate its contribution to the solution $\mathbf{x}_k$:
-
-$$
-\mathbf{x}_k \gets \mathbf{x}_k + (\mathbf{y}_k)_j \mathbf{v}_j
-$$
-
-Then, we discard $\mathbf{v}_j$ and move on to the next one. This way, we never need to store the full basis in memory. There are two important details to note:
-
-- The basis vectors are generated in the same order as in the first pass, since floating-point arithmetic is deterministic, this ensures that the basis is bitwise identical to the one that would have been computed in a single pass.
-- The solution, however, will change slightly due to the different order of operations in floating-point arithmetic. In the standard Lanczos, the solution is built as matrix-vector product $\mathbf{V}_k \mathbf{y}_k$, while in the two-pass method, it's built as a sum of scaled vectors. This is compiles to two different BLAS calls (`gemv` vs `axpy`), which have different rounding errors. However, in practice, the difference is in the order of machine epsilon and doesn't affect convergence.
-
-Of course. Here is the content as a Markdown snippet. -->
-
 # Implementation
 
-Let's build this in Rust. The performance of the two-pass algorithm depends entirely on controlling memory access patterns, and Rust's ownership model and zero-cost abstractions give us the tools to reason about where data lives and how it moves through the cache hierarchy.
+Building this in Rust forces us to think concretely about where data lives and how it flows through the cache hierarchy. We need to control memory layout, decide when allocations happen, and choose abstractions that cost us nothing at runtime.
 
-For the linear algebra primitives, we'll use [`faer`](https://github.com/sarah-ek/faer-rs), a modern pure-Rust numerical library. Three features are particularly important for what we're about to build:
+For linear algebra, we reach for [`faer`](https://github.com/sarah-ek/faer-rs). Three design choices in this library matter for what we're building:
 
-- **Stack allocation:** `MemStack` provides a pre-allocated scratch buffer that we can reuse, making the hot path of the algorithm allocation-free.
-- **Matrix-free operators:** The `LinOp` trait lets us define operators by their action (`apply`) without needing to materialize a matrix. This is essential for large-scale problems.
-- **SIMD-optimized kernels:** The `zip!` macro generates vectorized loops that compile down to packed SIMD instructions for core vector operations.
+- **Stack allocation via `MemStack`:** Pre-allocated scratch space that lives for the entire computation. The hot path becomes allocation-free.
+- **Matrix-free operators:** The `LinOp` trait defines an operator by its action (`apply`) without materializing a matrix. For large sparse problems, this is the only viable approach.
+- **SIMD-friendly loops:** The `zip!` macro generates code that compiles to packed instructions.
 
 ## Building the Core Recurrence
 
-The foundation of our algorithm is the Lanczos three-term recurrence:
+Our starting point is the Lanczos three-term recurrence that we derived earlier:
 
-$\beta_j \mathbf{v}_{j+1} = \mathbf{A}\mathbf{v}_j - \alpha_j \mathbf{v}_j - \beta_{j-1}\mathbf{v}_{j-1}$
+$$
+\beta_j \mathbf{v}_{j+1} = \mathbf{A}\mathbf{v}_j - \alpha_j \mathbf{v}_j - \beta_{j-1}\mathbf{v}_{j-1}
+$$
 
-Let's start by translating this directly into a Rust function. The signature should look something like this:
+We can translate this into a recurrence step function. The signature looks like this:
 
 ```rust
 fn lanczos_recurrence_step<T: ComplexField, O: LinOp<T>>(
@@ -379,16 +350,18 @@ fn lanczos_recurrence_step<T: ComplexField, O: LinOp<T>>(
 ) -> (T::Real, Option<T::Real>)
 ```
 
-This way, the function is generic over the field type `T` (`f64`, `c64`, etc.) and the operator type `O`. It operates on `faer`'s matrix views (`MatMut` and `MatRef`) to avoid unnecessary data copies. The return type `(T::Real, Option<T::Real>)` gives us the diagonal element $\alpha_j$ and, if the process hasn't broken down, the off-diagonal $\beta_j$.
+The function is generic over the field type `T` (`f64`, `c64`, etc.) and the operator type `O`. It operates on matrix views (`MatMut` and `MatRef`) to avoid unnecessary data copies. The return type gives us the diagonal element $\alpha_j$ and, _if no breakdown occurs_, the off-diagonal $\beta_j$.
 
-Now let's implement the body by following the math step-by-step. First, we handle the operator application, which is the most computationally expensive part:
+Now we can implement the body by following the math. The first step is the most expensive:
 
 ```rust
 // 1. Apply operator: w = A * v_curr
 operator.apply(w.rb_mut(), v_curr, Par::Seq, stack);
 ```
 
-Next, we orthogonalize against the previous vector $\mathbf{v}_{j-1}$. This is a perfect use case for `faer`'s `zip!` macro, which the compiler can turn into efficient SIMD instructions.
+The matrix-vector product dominates the computational cost. Everything else is secondary.
+
+Next, we orthogonalize against $\mathbf{v}_{j-1}$. This is where we benefit from `faer`'s design. The `zip!` macro fuses this operation into a single loop that the compiler vectorizes into SIMD instructions.
 
 ```rust
 // 2. Orthogonalize against v_{j-1}: w -= β_{j-1} * v_{j-1}
@@ -398,14 +371,14 @@ zip!(w.rb_mut(), v_prev).for_each(|unzip!(w_i, v_prev_i)| {
 });
 ```
 
-With the vector partially orthogonalized, we can compute the diagonal coefficient $\alpha_j$ via an inner product. Since $\mathbf{A}$ is Hermitian, this value is guaranteed to be real.
+With `w` partially orthogonalized, we can compute the diagonal coefficient via an inner product. Since $\mathbf{A}$ is Hermitian, $\alpha_j$ is guaranteed real.
 
 ```rust
 // 3. Compute α_j = v_j^H * w
 let alpha = T::real_part_impl(&(v_curr.adjoint() * w.rb())[(0, 0)]);
 ```
 
-Then we complete the orthogonalization against the current vector $\mathbf{v}_j$.
+We complete the orthogonalization against $\mathbf{v}_j$ with another `zip!` loop.
 
 ```rust
 // 4. Orthogonalize against v_j: w -= α_j * v_j
@@ -415,12 +388,12 @@ zip!(w.rb_mut(), v_curr).for_each(|unzip!(w_i, v_curr_i)| {
 });
 ```
 
-The vector `w` now holds the unnormalized next Lanczos vector. We can compute its norm to get our off-diagonal coefficient, $\beta_j$. If this norm is numerically zero, it signals that the Krylov subspace is invariant, and the iteration must stop. This is known as breakdown.
+Now `w` holds the unnormalized next basis vector. We compute its norm to get $\beta_j$. If this norm is numerically zero, the Krylov subspace is invariant, the iteration has reached its natural stopping point. This is called breakdown.
 
 ```rust
 // 5. Compute β_j = ||w||_2 and check for breakdown
 let beta = w.rb().norm_l2();
-let tolerance = T::Real::from_f64_impl(f64::EPSILON * 1000.0);
+let tolerance = breakdown_tolerance::<T::Real>();
 
 if beta <= tolerance {
     (alpha, None)
@@ -429,37 +402,40 @@ if beta <= tolerance {
 }
 ```
 
-## An Iterator for the Recurrence
+The function returns `None` for $\beta_j$ when breakdown occurs, signaling to the caller that no further iterations should proceed.
 
-The recurrence step is a pure function. If we just call it in a simple loop, it would be correct but inefficient. We need a stateful object to manage the vectors between steps, which is a classic use case for the iterator pattern. Let's create a struct, `LanczosIteration`, to encapsulate the state:
+## An Iterator for State Management
+
+The recurrence step is a pure function, but calling it in a loop is both inefficient and awkward. We'd need to manually pass vectors in and out of each iteration. More critically, we'd create copies when we should be reusing memory.
+
+The iterator pattern solves this. We create a struct that encapsulates the state:
 
 ```rust
 struct LanczosIteration<'a, T: ComplexField, O: LinOp<T>> {
     operator: &'a O,
     v_prev: Mat<T>,       // v_{j-1}
     v_curr: Mat<T>,       // v_j
-    work: Mat<T>,         // Workspace for Av_j
+    work: Mat<T>,         // Workspace for the next vector
     beta_prev: T::Real,   // β_{j-1}
     // ... iteration counters
 }
 ```
 
-A key insight here is that the vectors are _owned_ (`Mat<T>`), not borrowed. This allows for a critical optimization inside the `next_step` method. After computing the next vector and normalizing it into the `work` buffer, we can cycle the state for the next iteration without any memory copies.
+The main design choice here is that vectors are **owned** (`Mat<T>`), not borrowed. This enables an optimization in the `next_step` method. After computing the next vector and normalizing it into `work`, we cycle the state without allocating or copying:
 
 ```rust
 // Inside next_step, after normalization...
-// Cycle vectors: v_prev <- v_curr <- work
 core::mem::swap(&mut self.v_prev, &mut self.v_curr);
 core::mem::swap(&mut self.v_curr, &mut self.work);
 ```
 
-These `mem::swap` calls are zero-cost. On x86-64, swapping two `Mat<T>` structures (which are fat pointers) compiles to just three `mov` instructions. No data is moved. The logical flow is: `v_prev` gets `v_curr`'s data, `v_curr` gets the new vector from `work`, and `work` gets the old `v_prev`'s allocation to be reused.
+On x86-64, swapping two `Mat<T>` structures (fat pointers) compiles to three `mov` instructions. The pointers change, but no vector data moves. After the swap, `v_prev` points to what `v_curr` held, `v_curr` points to `work`'s allocation, and `work` points to the old `v_prev` data. In the next iteration, `work` gets reused.
 
-This keeps a fixed working set of three n-dimensional vectors in play. The same memory gets reused, which is great for cache locality.
+We keep exactly three n-dimensional vectors live in memory. The same allocations cycle through the computation, staying hot in L1 cache. This is the core reason the two-pass method can be faster than expected, the working set never leaves cache.
 
-## First Pass: Collecting the Scalars
+## First Pass: Computing the Decomposition
 
-Now let's build the first pass. Its job is to run the iteration and compute the coefficients $\{\alpha_j, \beta_j\}$ while discarding the basis vectors. We can implement this pass to directly consume our `LanczosIteration`. The function signature will look like this:
+The first pass runs the Lanczos iteration and collects the coefficients $\{\alpha_j, \beta_j\}$. Basis vectors are discarded after each step.
 
 ```rust
 pub fn lanczos_pass_one<T: ComplexField>(
@@ -472,14 +448,14 @@ pub fn lanczos_pass_one<T: ComplexField>(
 }
 ```
 
-We start by initializing storage for the scalars, using a capacity hint to prevent reallocations.
+We allocate vectors for the coefficients with a capacity hint to avoid reallocations:
 
 ```rust
 let mut alphas = Vec::with_capacity(k);
 let mut betas = Vec::with_capacity(k - 1);
 ```
 
-Then, we create the iterator, which allocates its three internal work vectors. After this point, the hot path is allocation-free. The main loop just drives the iterator and collects the results.
+Then we construct the iterator. This allocates the three work vectors once. After this point, the hot path is allocation-free:
 
 ```rust
 let mut lanczos_iter = LanczosIteration::new(operator, b, k, b_norm)?;
@@ -487,8 +463,12 @@ let mut lanczos_iter = LanczosIteration::new(operator, b, k, b_norm)?;
 for i in 0..k {
     if let Some(step) = lanczos_iter.next_step(stack) {
         alphas.push(step.alpha);
+        steps_taken += 1;
 
-        if step.beta <= tolerance { break; }
+        let tolerance = breakdown_tolerance::<T::Real>();
+        if step.beta <= tolerance {
+            break;
+        }
 
         if i < k - 1 {
             betas.push(step.beta);
@@ -499,63 +479,124 @@ for i in 0..k {
 }
 ```
 
-At the end, we move the scalar vectors into a `LanczosDecomposition` struct. The memory high-water mark for this whole pass is constant: three n-dimensional vectors plus the two small, growing scalar arrays. This gives us the desired $O(n)$ memory complexity.
+The check for breakdown stops the iteration when the residual becomes numerically zero. This means we've found an invariant subspace and there's no value in continuing.
+
+At the end, we collect the scalars into a `LanczosDecomposition` struct. The memory footprint throughout this pass is constant: three n-dimensional vectors plus two small arrays that grow to at most $k$ elements.
 
 ## Second Pass: Reconstructing the Solution
 
-Now for the second pass. We need to take the computed coefficients and reconstruct the solution $\mathbf{x}_k = \sum_{j=1}^k (\mathbf{y}_k)_j \mathbf{v}_j$ without storing the full basis. The core of this pass is a slightly different recurrence step. Since we already have the coefficients, we don't need to compute inner products or norms.
+Now we face a different problem. We have the $\{\alpha_j, \beta_j\}$ coefficients from the first pass and the coefficient vector $\mathbf{y}_k = f(\mathbf{T}_k) \mathbf{e}_1 \|\mathbf{b}\|_2$ from solving the projected problem. We need to reconstruct the solution:
+
+$$
+\mathbf{x}_k = \sum_{j=1}^k (\mathbf{y}_k)_j \mathbf{v}_j
+$$
+
+without storing the full basis matrix $\mathbf{V}_k$.
+
+The recurrence step in this pass is structurally similar to the first pass, but with a key difference: we no longer compute inner products or norms. We already know the coefficients, so the step becomes pure reconstruction.
 
 ```rust
 fn lanczos_reconstruction_step<T: ComplexField, O: LinOp<T>>(
-    // ... same arguments as before, plus alpha_j and beta_prev
+    operator: &O,
+    mut w: MatMut<'_, T>,
+    v_curr: MatRef<'_, T>,
+    v_prev: MatRef<'_, T>,
+    alpha_j: T::Real,
+    beta_prev: T::Real,
+    stack: &mut MemStack,
 ) {
     // Apply operator
     operator.apply(w.rb_mut(), v_curr, Par::Seq, stack);
 
-    // Orthogonalize using the pre-computed coefficients
-    // ... (same zip! calls as before, no inner products)
+    // Orthogonalize using stored α_j and β_{j-1}
+    let beta_prev_scaled = T::from_real_impl(&beta_prev);
+    zip!(w.rb_mut(), v_prev).for_each(|unzip!(w_i, v_prev_i)| {
+        *w_i = sub(w_i, &mul(&beta_prev_scaled, v_prev_i));
+    });
+
+    let alpha_scaled = T::from_real_impl(&alpha_j);
+    zip!(w.rb_mut(), v_curr).for_each(|unzip!(w_i, v_curr_i)| {
+        *w_i = sub(w_i, &mul(&alpha_scaled, v_curr_i));
+    });
 }
 ```
 
-This reconstruction is slightly cheaper than the generation step. The main function `lanczos_pass_two` orchestrates the process. Here, we initialize the same three work vectors (`v_prev`, `v_curr`, `work`) and an accumulator for the final solution, `x_k`.
+This is cheaper than the first-pass recurrence. We've eliminated the inner products that computed $\alpha_j$ and the norm calculation for $\beta_j$. What remains is pure orthogonalization and the operator application.
 
-We can start building the solution with the first term of the sum:
-
-```rust
-// v_curr is initialized to v_1
-let mut x_k = &v_curr * Scale(T::copy_impl(&y_k[(0, 0)]));
-```
-
-Our main loop then regenerates each subsequent basis vector, normalizes it using the stored $\beta_j$, and immediately accumulates its contribution to the solution.
+`lanczos_pass_two` implements this reconstruction. We initialize the three work vectors and the solution accumulator:
 
 ```rust
-// Inside the main loop...
+pub fn lanczos_pass_two<T: ComplexField>(
+    operator: &impl LinOp<T>,
+    b: MatRef<'_, T>,
+    decomposition: &LanczosDecomposition<T::Real>,
+    y_k: MatRef<'_, T>,
+    stack: &mut MemStack,
+) -> Result<Mat<T>, LanczosError> {
+    let mut v_prev = Mat::<T>::zeros(b.nrows(), 1);
+    let inv_norm = T::from_real_impl(&T::Real::recip_impl(&decomposition.b_norm));
+    let mut v_curr = b * Scale(inv_norm);  // v_1
 
-// 1. Regenerate the unnormalized next vector into `work`
-lanczos_reconstruction_step(...);
+    let mut work = Mat::<T>::zeros(b.nrows(), 1);
 
-// 2. Normalize it using the stored β_j
-let inv_beta = T::from_real_impl(&T::Real::recip_impl(&beta_j));
-zip!(work.as_mut()).for_each(|unzip!(w_i)| {
-    *w_i = mul(w_i, &inv_beta);
-});
-
-// 3. Accumulate: x_k += y_{j+1} * v_{j+1}
-let coeff = T::copy_impl(&y_k[(j + 1, 0)]);
-zip!(x_k.as_mut(), work.as_ref()).for_each(|unzip!(x_i, v_i)| {
-    *x_i = add(x_i, &mul(&coeff, v_i));
-});
-
-// 4. Cycle the vectors for the next iteration
-core::mem::swap(&mut v_prev, &mut v_curr);
-core::mem::swap(&mut v_curr, &mut work);
+    // Initialize solution with first component
+    let mut x_k = &v_curr * Scale(T::copy_impl(&y_k[(0, 0)]));
 ```
 
-The accumulation step `x_k += ...` uses another `zip!` loop that compiles to a fused multiply-add on hardware that supports it. We cycle the same three vectors (`v_prev`, `v_curr`, `work`), keeping the working set small and hot in the cache. This is a stark contrast to the standard method's final step, which involves a large matrix-vector product that streams through the entire $n \times k$ basis, likely from main memory.
+We build the solution incrementally by starting with the first basis vector scaled by its coefficient. The main loop then regenerates each subsequent vector: we regenerate each subsequent basis vector, normalize it using the stored $\beta_j$, and immediately accumulate its contribution:
 
-## A Clean Public API
+```rust
+for j in 0..decomposition.steps_taken - 1 {
+    let alpha_j = T::Real::copy_impl(&decomposition.alphas[j]);
+    let beta_j = T::Real::copy_impl(&decomposition.betas[j]);
+    let beta_prev = if j == 0 {
+        T::Real::zero_impl()
+    } else {
+        T::Real::copy_impl(&decomposition.betas[j - 1])
+    };
 
-Finally, let's wrap these low-level components in a high-level solver function to present a clean interface to the user.
+    // 1. Regenerate the unnormalized next vector
+    lanczos_reconstruction_step(
+        operator,
+        work.as_mut(),
+        v_curr.as_ref(),
+        v_prev.as_ref(),
+        alpha_j,
+        beta_prev,
+        stack,
+    );
+
+    // 2. Normalize using stored β_j
+    let inv_beta = T::from_real_impl(&T::Real::recip_impl(&beta_j));
+    zip!(work.as_mut()).for_each(|unzip!(w_i)| {
+        *w_i = mul(w_i, &inv_beta);
+    });
+
+    // 3. Accumulate: x_k += y_{j+1} * v_{j+1}
+    let coeff = T::copy_impl(&y_k[(j + 1, 0)]);
+    zip!(x_k.as_mut(), work.as_ref()).for_each(|unzip!(x_i, v_i)| {
+        *x_i = add(x_i, &mul(&coeff, v_i));
+    });
+
+    // 4. Cycle vectors for the next iteration
+    core::mem::swap(&mut v_prev, &mut v_curr);
+    core::mem::swap(&mut v_curr, &mut work);
+}
+```
+
+The accumulation `x_k += y_{j+1} * v_{j+1}` is implemented as a fused multiply-add in the `zip!` loop. On hardware with FMA support, this becomes a single instruction per element, not three separate operations.
+
+Note that we accumulate the solution incrementally. After each iteration, `x_k` contains a partial result. We cycle through the same three vectors (`v_prev`, `v_curr`, `work`), keeping the working set small and resident in L1 cache.
+
+Compare this to the standard method's final reconstruction step: $\mathbf{x}_k = \mathbf{V}_k \mathbf{y}_k$. This is a dense matrix-vector product where $\mathbf{V}_k$ is $n \times k$. When $n$ and $k$ are both large, this matrix no longer fits in cache. The CPU must stream it from main memory, paying the cost of memory latency. Each element requires a load, multiply, and accumulate, but the load operations dominate—the CPU stalls waiting for data.
+
+In our two-pass reconstruction, the operator `$\mathbf{A}$` is applied $k$ times, but against vectors that stay in cache. The memory bandwidth is spent on reading the sparse structure of $\mathbf{A}$ and the vector elements, not on scanning a dense $n \times k$ matrix.
+
+This is the reason the two-pass method can be faster on real hardware despite performing twice as many matrix-vector products. The cache behavior of the reconstruction phase overwhelms the savings of storing the basis.
+
+## The Public API
+
+We can wrap the two passes into a single entry point:
 
 ```rust
 pub fn lanczos_two_pass<T, O, F>(
@@ -566,7 +607,8 @@ pub fn lanczos_two_pass<T, O, F>(
     mut f_tk_solver: F,
 ) -> Result<Mat<T>, LanczosError>
 where
-    // ... generic bounds
+    T: ComplexField,
+    O: LinOp<T>,
     F: FnMut(&[T::Real], &[T::Real]) -> Result<Mat<T>, anyhow::Error>,
 {
     // First pass: compute T_k coefficients
@@ -587,13 +629,15 @@ where
 }
 ```
 
-The key piece of this API is the `f_tk_solver` closure. We designed it this way to decouple the Lanczos iteration from the specific matrix function $f$. We require the user to provide a solver for the small $k \times k$ projected problem, and our main function orchestrates the two passes around it. This approach makes our implementation flexible enough to handle linear solves, matrix exponentials, or any other function without changing the core algorithm.
+The design separates concerns. The `f_tk_solver` closure is where we inject the specific matrix function. We compute the Lanczos decomposition, then pass the coefficients to the user-provided solver, which computes $\mathbf{y}_k' = f(\mathbf{T}_k) \mathbf{e}_1$ for whatever function $f$ is needed. This decoupling means we handle linear solves, matrix exponentials, or any other function without modifying the core algorithm.
 
-### Example: The Solver for a Linear System
+The caller provides `f_tk_solver` as a closure. It receives the raw $\{\alpha_j, \beta_j\}$ arrays and must return the coefficient vector $\mathbf{y}_k'$. We then scale it by $\|\mathbf{b}\|_2$ and pass everything to the second pass.
 
-Let's see what this solver closure looks like in a real-world scenario. If we want to solve a linear system $\mathbf{Ax} = \mathbf{b}$, we are computing the action of the inverse function, $f(z) = z^{-1}$. This means our `f_tk_solver` needs to solve the small, tridiagonal linear system $\mathbf{T}_k \mathbf{y}' = \mathbf{e}_1$.
+### Example: Solving a Linear System
 
-Since $\mathbf{T}_k$ is tridiagonal, we can solve this system very efficiently. A sparse LU decomposition is an excellent choice, as its complexity for a tridiagonal system is only $O(k)$. Here's how we can implement the solver:
+To see this in practice, consider solving $\mathbf{Ax} = \mathbf{b}$. We compute $f(z) = z^{-1}$, which means the `f_tk_solver` must solve the small tridiagonal system $\mathbf{T}_k \mathbf{y}' = \mathbf{e}_1$.
+
+Since $\mathbf{T}_k$ is tridiagonal, we can exploit its structure. A sparse LU factorization solves it in $O(k)$ time instead of the $O(k^3)$ cost of a dense method.
 
 ```rust
 let f_tk_solver = |alphas: &[f64], betas: &[f64]| -> Result<Mat<f64>, anyhow::Error> {
@@ -602,8 +646,7 @@ let f_tk_solver = |alphas: &[f64], betas: &[f64]| -> Result<Mat<f64>, anyhow::Er
         return Ok(Mat::zeros(0, 1));
     }
 
-    // 1. Assemble the sparse tridiagonal matrix T_k from coefficients.
-    // We use a triplet format for efficient construction.
+    // 1. Assemble T_k from coefficients using triplet format
     let mut triplets = Vec::with_capacity(3 * steps - 2);
     for (i, &alpha) in alphas.iter().enumerate() {
         triplets.push(Triplet { row: i, col: i, val: alpha });
@@ -614,16 +657,17 @@ let f_tk_solver = |alphas: &[f64], betas: &[f64]| -> Result<Mat<f64>, anyhow::Er
     }
     let t_k_sparse = SparseColMat::try_new_from_triplets(steps, steps, &triplets)?;
 
-    // 2. Create the right-hand side vector, e_1.
+    // 2. Construct e_1
     let mut e1 = Mat::zeros(steps, 1);
     e1.as_mut()[(0, 0)] = 1.0;
 
-    // 3. Solve the system using a sparse LU factorization.
+    // 3. Solve T_k * y' = e_1 via sparse LU
     Ok(t_k_sparse.as_ref().sp_lu()?.solve(e1.as_ref()))
 };
 ```
 
-This closure takes the raw `alphas` and `betas` from the Lanczos process, constructs the `faer` sparse matrix, and then uses its built-in LU solver. This is the exact approach we used in our experimental binaries.
+The closure takes the coefficient arrays, constructs the sparse tridiagonal matrix, and solves the system. The triplet format lets us build the matrix efficiently without knowing its structure in advance. The sparse LU solver leverages the tridiagonal structure to avoid dense factorization.
+
 
 # Some interesting results
 
@@ -639,59 +683,70 @@ A =
 \end{pmatrix}
 $$
 
-This structure gives us two critical knobs to turn. First, with the [netgen](https://commalab.di.unipi.it/files/Data/MCF/netgen.tgz) utility, we can control the E matrix, which lets us dial in the problem dimension, $n$. Second, we build the diagonal block D with random entries from a range $[1, C_D]$. This parameter, $C_D$, gives us direct control over the numerical difficulty of the problem.Let's look at how. For a symmetric matrix like $D$, the 2-norm condition number, $\kappa_2(D)$, is the ratio of its largest to its smallest eigenvalue: $\kappa_2(D) = \lambda_{\max}(D) / \lambda_{\min}(D)$. Since $D$ is diagonal, its eigenvalues are simply its diagonal entries. We are drawing these entries from a uniform distribution $U[1, C_D]$, so we have $\lambda_{\max}(D) \approx C_D$ and $\lambda_{\min}(D) \approx 1$. This means we get direct control: $\kappa_2(D) \approx C_D$.The spectral properties of this block heavily influence the spectrum of the entire matrix $A$. A large condition number in $D$ leads to a more ill-conditioned system for $A$. The convergence rate of Krylov methods like Lanczos is fundamentally governed by the distribution of the operator's eigenvalues. An ill-conditioned matrix, with a wide spread of eigenvalues, will require more iterations, $k$, to reach the desired accuracy. By simply adjusting the $C_D$ parameter, we can generate everything from well-conditioned problems that converge quickly to ill-conditioned ones that force us to run a large number of iterations. This is exactly what we need to rigorously test our implementation.
+This structure gives us two critical knobs to turn. First, with the [netgen](https://commalab.di.unipi.it/files/Data/MCF/netgen.tgz) utility, we can control the $E$ matrix, which lets us dial in the problem dimension, $n$. Second, we build the diagonal block D with random entries from a range $[1, C_D]$. This parameter, $C_D$, gives us direct control over the numerical difficulty of the problem.
 
-## The Memory and Computation Trade-off
+For a symmetric matrix like $D$, the 2-norm condition number, $\kappa_2(D)$, is the ratio of its largest to its smallest eigenvalue: $\kappa_2(D) = \lambda_{\max}(D) / \lambda_{\min}(D)$. Since $D$ is diagonal, its eigenvalues are simply its diagonal entries. We are drawing these entries from a uniform distribution $U[1, C_D]$, so we have $\lambda_{\max}(D) \approx C_D$ and $\lambda_{\min}(D) \approx 1$. This means we get direct control, as $\kappa_2(D) \approx C_D$.The spectral properties of this block heavily influence the spectrum of the entire matrix $A$. A large condition number in $D$ leads to a more ill-conditioned system for $A$. The convergence rate of Krylov methods like Lanczos is fundamentally governed by the distribution of the operator's eigenvalues. An ill-conditioned matrix, with a wide spread of eigenvalues, will require more iterations, $k$, to reach the desired accuracy. By simply adjusting the $C_D$ parameter, we can generate everything from well-conditioned problems that converge quickly to ill-conditioned ones that force us to run a large number of iterations. This is exactly what we need to rigorously test our implementation.
 
-Let's put this to the test. We'll start by fixing the problem size to a large $n=500,000$ and then vary the number of iterations, $k$. We have two clear hypotheses based on a standard complexity analysis.
+## Memory and Computation Trade-off
 
-First, regarding memory, the one-pass method has a complexity of $O(nk)$ due to storing the basis $\mathbf{V}_k$. We expect its memory usage to grow linearly with $k$. Our two-pass method, with its $O(n)$ complexity, should have a flat memory footprint.
+We measure the algorithm against two hypotheses on a large sparse problem with $n=500,000$, varying the number of iterations $k$.
 
-Second, for wall-clock time, the analysis seems just as simple. The two-pass method performs twice the number of matrix-vector products, which is the most expensive operation. Therefore, we should expect it to be about twice as slow.
+**Hypothesis 1 (Memory):** The one-pass method stores the full basis $\mathbf{V}_k$ with complexity $O(nk)$. We expect its memory to grow linearly with $k$. The two-pass method operates with $O(n)$ memory, so it should have a flat profile.
 
-Let's see what the data says. First, memory usage.
+**Hypothesis 2 (Runtime):** The two-pass method performs $2k$ matrix-vector products instead of $k$. If all else were equal, we'd expect it to run twice as slow.
+
+### Memory Usage
 
 ![Memory vs Iterations](/public/assets/lanczos/tradeoff_arcs500k_rho3_memory.png)
 
-The results confirm our memory model perfectly. The standard algorithm's memory footprint grows in a perfectly straight line, a direct consequence of storing the basis $\mathbf{V}_k$. Our two-pass method is a flat line, using only the constant $O(n)$ memory for its small working set of vectors. No surprises here.
+The memory data confirms Hypothesis 1 exactly. The one-pass method's footprint scales as a straight line—each additional iteration adds one vector to the basis. The two-pass method remains flat. No allocation growth happens after initialization.
 
-Now for the wall-clock time. This is where the simple model starts to fall apart.
+### Runtime: Where Theory Breaks
 
 ![Runtime vs Iterations](/public/assets/lanczos/tradeoff_arcs500k_rho3_time.png)
 
-The two-pass method is always slower, as expected, but the difference is nowhere near a factor of two. For a small number of iterations, the gap is very narrow, and as we increase $k$, the two-pass method's runtime starts becoming _slightly_ slower than the one-pass method.
+The runtime data contradicts Hypothesis 2. The two-pass method is slower, but never by a factor of two. For small $k$, the gap is minimal. As $k$ grows, the two-pass runtime diverges slowly from the one-pass method, not by doubling, but by a much smaller margin.
 
-So what's going on? This behavior is governed by the memory access patterns during the solution reconstruction phase. We can model the total execution time as the sum for matrix-vector products and vector operations. For the standard method, the final solution is computed via a single dense matrix-vector product, $\mathbf{x}_k = \mathbf{V}_k \mathbf{y}_k$. When $n$ and $k$ are large, the basis matrix $\mathbf{V}_k$ becomes too large to fit in any level of the CPU cache. Consequently, this operation becomes _memory-bandwidth-bound_: its performance is limited by the speed at which data can be streamed from main memory, leading to high latency. In contrast, the two-pass method reconstructs the solution incrementally, operating on a small working set of vectors at each step ($\mathbf{v}_{\text{prev}}$, $\mathbf{v}_{\text{curr}}$, and $\mathbf{x}_k$).
+This difference comes from memory access patterns. Both methods perform matrix-vector products, but they differ in how they reconstruct the solution.
 
-This allows the processor's cache hierarchy to manage the data effectively and maintain a high cache-hit rate. This high data locality means the processor is constantly fed data. The cost of re-computing the basis vectors turns out to be less than the cost of the memory latency paid by the standard method.
+The one-pass method computes $\mathbf{x}_k = \mathbf{V}_k \mathbf{y}_k$ in a single dense matrix-vector product. When $n$ and $k$ are large, the $n \times k$ basis matrix exceeds all cache levels. The CPU cannot keep the data resident; instead, it streams $\mathbf{V}_k$ from main memory. This is a memory-bandwidth-bound operation. The processor stalls, waiting for each load to complete. Instruction-level parallelism collapses.
 
-This effect isn't just for large-scale problems. On a medium-scale instance ($n=50,000$), we find an equilibrium point where the performance is nearly identical. Here, the penalty the standard method pays for increasing cache misses almost perfectly balances the cost of the extra matrix-vector products in our two-pass implementation.
+The two-pass method reconstructs the solution incrementally. At each iteration, it operates on exactly three n-dimensional vectors: $\mathbf{v}_{\text{prev}}$, $\mathbf{v}_{\text{curr}}$, and $\mathbf{x}_k$. This working set fits in L1 cache. The processor performs $2k$ matrix-vector products (each one reading the sparse operator, then applying it to a cached vector), but the solution accumulation happens entirely within cache. The additional matrix-vector products are cheaper than the memory latency of the standard method.
+
+The cost of re-computing basis vectors is less than the latency cost of scanning an $n \times k$ dense matrix from main memory.
+
+### Medium-Scale Behavior
 
 ![Medium Scale Runtime vs Iterations](/public/assets/lanczos/tradeoff_arcs50k_rho3_time.png)
 ![Medium Scale Memory Usage vs Iterations](/public/assets/lanczos/tradeoff_arcs50k_rho3_memory.png)
 
-### The Final Proof: A Dense Matrix
+At $n=50,000$ we can observe an equilibrium. The two methods have nearly identical runtime. The standard method's $\mathbf{V}_k$ matrix is smaller; it fits partially in cache. The cache-miss penalty here becomes manageable. The two-pass method still has the advantage of cache-local accumulation, but the difference is marginal.
 
-To confirm our hypothesis that this is all about memory access, we can run one final test. What happens if we use a dense matrix? Here, the matrix-vector product is an $O(n^2)$ operation, making it so computationally expensive that it should dominate all other costs, including memory latency. In this compute-bound regime, our cache efficiency advantage should become negligible.
+### What About Dense Matrices?
 
-We can run an experiment with a dense random matrix of size $n=10,000$. Let's see the results.
+To be sure of our hypothesis, we can test it directly using a dense matrix of size $n=10,000$. For dense problems, the matrix-vector product is $O(n^2)$, it dominates all other costs. Memory latency will become negligible relative to the compute work and the cache efficiency advantage should disappear.
 
 ![Dense Matrix Runtime vs Iterations](/public/assets/lanczos/dense-tradeoff.png)
 
-The runtime of the two-pass method is almost exactly twice that of the standard one. The slopes of the lines confirm it. This proves our analysis: the surprisingly strong performance of our two-pass method on sparse problems is a direct result of its superior cache efficiency. It's a textbook example of how modern hardware architecture can turn a seemingly worse algorithm into a winner.
+We can see that the two-pass method runs almost exactly twice as slow as the one-pass method. The slope ratio is _exactly_ 2:1. In a compute-bound regime, the extra matrix-vector products cannot be hidden by cache effects. Here, the theoretical trade-off holds perfectly.
 
-## Scalbility
+## Scalability
 
-Finally, let's look at how our implementation scales with increasing problem size. We'll fix the number of iterations to $k=500$ and vary $n$ from $50,000$ to $500,000$.
-
-> Using netget allows us to generate a variety of problem sizes while keeping the sparsity pattern realistic.
-
-Based on what we've seen so far, we expect the two-pass method memory usage to scale linearly with $n$, but with a very small slope. The standard method should also scale linearly, but with a much steeper slope due to the $O(nk)$ memory for storing the basis. We can see that this is exactly what happens:
+Now, let's fix the iteration count at $k=500$ and vary $n$ from $50,000$ to $500,000$ to measure scalability. Based on what we have seen before, we would expect the two-pass memory to scale linearly with $n$ but with a small constant factor (three vectors, plus scalars). The one-pass method should also scale linearly, but with a $k$-dependent slope.
 
 ![Scalability Memory Usage](/public/assets/lanczos/scalability_k500_rho3_memory.png)
 
-> I had to use a logarithmic scale on the y-axis in order to make visible the very small memory usage increase of the two-pass method.
+Here we have to use a logarithmic y-axis to show both curves; the two-pass line is so flat relative to the one-pass line that it's otherwise invisible.
 
-The runtime scaling also scales linearly with $n$ for both methods, as expected. For dimensions that are smaller then $n=150,000$, the two algorithms have very similar performance. As we increase $n$ further, the cost of the matrix-vector products starts to dominate, and the two-pass method's runtime becomes to diverge, becoming progressively slower then the standard method.
 
 ![Scalability Runtime](/public/assets/lanczos/scalability_k500_rho3_time.png)
+
+Runtime scales linearly with $n$ for both methods, as expected. Below $n=150,000$, the two methods have similar performance. This is the regime where both basis and working set fit in cache, or where the problem is small enough that memory latency is not the bottleneck.
+
+As $n$ increases beyond $150,000$, the matrix-vector product time dominates. The sparse structure of $\mathbf{A}$ ensures that each matvec requires multiple memory accesses per element. For the one-pass method, the final reconstruction of $\mathbf{V}_k \mathbf{y}_k$ begins to cost more as the matrix grows. For the two-pass method, performing $2k$ matrix-vector products means the matvec cost accumulates more rapidly. The divergence is gradual, not sharp, because the advantage of cache locality in accumulation persists—but it cannot overcome the fundamental cost of doubling the number of expensive operations.
+
+---
+
+Well, that's it. If you want to have a better look at the code or use it, it's all open source:
+
+* [Github Repository](https://github.com/lukefleed/two-pass-lanczos)
