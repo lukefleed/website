@@ -17,7 +17,7 @@ The standard Lanczos method for computing matrix functions has a brutal memory r
 In this post, we will explore one of the most straightforward solutions to this problem: a two-pass variant of the Lanczos algorithm that only requires $O(n)$ memory at the cost of doubling the number of matrix-vector products. The surprising part is that when implemented carefully, the two-pass version isn't just memory-efficient—it can be faster for certain problems. We will dig into why.
 
 - All code is available on GitHub: [two-pass-lanczos](https://github.com/lukefleed/two-pass-lanczos)
-- The full technical report with proofs and additional experiments: [report.pdf](/two-pass-lanczos/tex/report.pdf)
+- The full technical report with proofs and additional experiments: [report.pdf](https://github.com/lukefleed/two-pass-lanczos/raw/master/tex/report.pdf)
 
 ---
 
@@ -104,79 +104,8 @@ Since $k \ll n$, we can afford direct methods like Schur-Parlett ($O(k^3)$).
 
 > For $f(z) = z^{-1}$ (linear systems), this reduces to solving $\mathbf{H}_k \mathbf{y}_k = \mathbf{e}_1 \|\mathbf{b}\|_2$ with LU decomposition.
 
-<!-- # Lanczos Iterations
 
-At the beginning of this post we said that $\mathbf{A}$ is Hermitian. This means that, in the real case, $\mathbf{A}$ is symmetric: $\mathbf{A} = \mathbf{A}^T$. In the complex case, it means $\mathbf{A} = \mathbf{A}^H$, where $\mathbf{A}^H$ is the conjugate transpose. This special property has huge implications for the Krylov projection.
-
-We can prove that $\mathbf{H}_k = \mathbf{V}_k^H \mathbf{A} \mathbf{V}_k$. This means that if $\mathbf{A}$ is Hermitian, then $\mathbf{H}_k$ must also be Hermitian. A matrix that is both upper Hessenberg and Hermitian has to be real, symmetric, and tridiagonal.
-
-In the literature we refer to this projected matrix as $\mathbf{T}_k$ instead of $\mathbf{H}_k$ to highlight its special tridiagonal structure. Where $\alpha_j \in \mathbb{R}$ (reals since $h_{ij} = \overline{h_{ji}}$) are the diagonal elements and $\beta_j = h_{j+1,j} \in \mathbb{R}$ are the off-diagonal elements.
-
-Let's re-write the Arnoldi decomposition for this case:
-
-$$
-\mathbf{A}\mathbf{V}_k = \mathbf{V}_k \mathbf{T}_k + \beta_k \mathbf{v}_{k+1} \mathbf{e}_k^T
-$$
-
-We can extract the $j$-th column from this matrix equation. On the left, we have $\mathbf{A}\mathbf{v}_j$. On the right, we need the $j$-th column of the whole expression. The second term, $\beta_k \mathbf{v}_{k+1} \mathbf{e}_k^T$, only affects the final column ($j=k$), so for now let's assume $j < k$. For the right-end-side for the equation we can exploit the tridiagonal structure of $\mathbf{T}_k$ to simplify the expression:
-
-$$
-\mathbf{V}_k (\mathbf{T}_k \mathbf{e}_j) = \beta_{j-1} \mathbf{v}_{j-1} + \alpha_j \mathbf{v}_j + \beta_j \mathbf{v}_{j+1}
-$$
-
-Thus, we get the famous **Lanczos three-term recurrence**:
-
-$$
-\mathbf{A}\mathbf{v}_j = \beta_{j-1}\mathbf{v}_{j-1} + \alpha_j \mathbf{v}_j + \beta_j \mathbf{v}_{j+1}
-$$
-
-The crucial detail to notice here is that to generate the next basis vector $\mathbf{v}_{j+1}$, we only need the two previous vectors, $\mathbf{v}_j$ and $\mathbf{v}_{j-1}$. We don't need to orthogonalize against the entire history of the basis, because the Hermitian nature of $\mathbf{A}$ guarantees that the new vector is already orthogonal to all vectors $\mathbf{v}_1, \ldots, \mathbf{v}_{j-2}$.
-
-So as before, we can determine the coefficients directly from this recurrence. By rearranging it, we get an expression for the unnormalized next vector:
-
-$$
-w_{j+1} = \mathbf{A}\mathbf{v}_j
-$$
-
-Then we compute the first component along $v_j$:
-
-$$
-\alpha_j = \mathbf{v}_j^H w_{j+1}
-$$
-
-This will be the diagonal element of the matrix. Now we subtract the component along $v_j$ and $v_{j-1}$ (that we know from the previous step):
-
-$$
-\tilde{\mathbf{v}}_{j+1} = w_{j+1} - \alpha_j \mathbf{v}_j - \beta_{j-1}\mathbf{v}_{j-1}
-$$
-
-This vector is orthogonal to both $\mathbf{v}_j$ and $\mathbf{v}_{j-1}$ for construction, and the tridiagonal property guarantees it's orthogonal to all previous vectors. Finally, we normalize it to get the next basis vector:
-
-$$
-\beta_j = \|\tilde{\mathbf{v}}_{j+1}\|_2 \qquad \mathbf{v}_{j+1} = \frac{\tilde{\mathbf{v}}_{j+1}}{\beta_j}
-$$
-
-## The Memory Bottleneck
-
-After $k$ iterations of this process, we end up with as before with two matrices: $\mathbf{V}_k \in \mathbb{C}^{n \times k}$ and the tridiagonal matrix $\mathbf{T}_k \in \mathbb{R}^{k \times k}$. The approximate solution is still given by:
-
-$$
-\mathbf{x}_k = \mathbf{V}_k \mathbf{y}_k = \sum_{j=1}^k (\mathbf{y}_k)_j \mathbf{v}_j
-$$
-
-where
-
-$$
-\mathbf{y}_k = f(\mathbf{T}_k) \mathbf{e}_1 \|\mathbf{b}\|_2
-$$
-
-This sum requires that all basis vectors $\mathbf{v}_j$ are stored in memory. There is a clear timing problem here: the coefficients $\mathbf{y}_k$ depends on the full $\mathbf{T}_k$, which only becomes available after $k$ iterations. Therefore, we cannot accumulate the solution $\mathbf{x}_k$ as we go. We have to wait until the end, when all basis vectors are already computed and stored.
-
-The memory complexity is $O(nk)$, which can be prohibitive for large $n$ and moderate $k$. For example, with $n = 500,000$ and $k = 1,000$, storing $\mathbf{V}_k$ alone requires about 4 GB of memory (assuming double-precision complex numbers). This can be a serious limitation in practice, this is why there is a lot of interest in reducing the memory footprint of Krylov methods.
-
-Let's see how we can do better in terms of memory usage. -->
-
-# The Lanczos Algorithm: From General to Specialized
+# The Lanczos Algorithm
 
 When $\mathbf{A}$ is Hermitian (or symmetric in the real case), the general Arnoldi
 process simplifies dramatically. We can prove that $\mathbf{H}_k = \mathbf{V}_k^H \mathbf{A} \mathbf{V}_k$ must also be Hermitian. A matrix that is both upper Hessenberg *and* Hermitian must be real, symmetric, and tridiagonal. This is a _huge_ simplification.
@@ -195,7 +124,7 @@ $$
 
 where $\alpha_j \in \mathbb{R}$ are the diagonal elements and $\beta_j \in \mathbb{R}$ are the off-diagonals (subdiagonals from the orthogonalization).
 
-## The Three-Term Recurrence
+## Three-Term Recurrence
 
 This tridiagonal structure leads to a beautiful simplification. To build the next basis
 vector $\mathbf{v}_{j+1}$, we don't need the entire history of vectors. We only need
@@ -220,7 +149,7 @@ $$
 
 This is known as the Lanczos algorithm. It's more efficient than Arnoldi because each iteration only orthogonalizes against two previous vectors instead of all prior ones.
 
-## The Reconstruction Problem
+## Reconstructing the Solution
 
 After $k$ iterations, we end up with the tridiagonal matrix $\mathbf{T}_k$ and all $k$ basis vectors $\mathbf{V}_k = [\mathbf{v}_1, \ldots, \mathbf{v}_k]$. We can then reconstruct the approximate solution as:
 
@@ -239,7 +168,7 @@ So we're left with a choice: whether we store all the basis vectors and solve th
 > There are also techniques to compress the basis vectors, have a look [here](https://arxiv.org/abs/2403.04390)
 
 
-# The Two-Pass Algorithm
+# Two-Pass Algorithm
 
 Here's where we break the timing deadlock. The insight that we don't actually need to store the basis vectors if we can afford to compute them twice
 
@@ -283,7 +212,7 @@ This is the solution in the reduced space. Now that we have the coefficients we 
 
 ## Second Pass: Reconstruct and Accumulate
 
-With $\mathbf{y}_k$ in memory, we replay the Lanczos recurrence _exactly as before_. We start with the same initialization ($\mathbf{v}_1$, $\beta_0$, $\mathbf{v}_0$) and apply the same sequence of operations, using the stored scalars $\alpha_j$ and $\beta_j$ to reconstruct each basis vector on demand. We can write some rust-like pseudocode for this second pass to get a feel for it:
+With $\mathbf{y}_k$ in memory, we replay the Lanczos recurrence _exactly as before_. We start with the same initialization ($\mathbf{v}_1$, $\beta_0$, $\mathbf{v}_0$) and apply the same sequence of operations, using the stored scalars $\alpha_j$ and $\beta_j$ to reconstruct each basis vector on demand. We can write some rust-like _pseudocode_ for this second pass to get a feel for it:
 
 ```rust
 let mut x_k = vec![0.0; n];
@@ -329,7 +258,7 @@ For linear algebra, we reach for [`faer`](https://github.com/sarah-ek/faer-rs). 
 - **Matrix-free operators:** The `LinOp` trait defines an operator by its action (`apply`) without materializing a matrix. For large sparse problems, this is the only viable approach.
 - **SIMD-friendly loops:** The `zip!` macro generates code that compiles to packed instructions.
 
-## Building the Core Recurrence
+## Recurrence Step
 
 Our starting point is the Lanczos three-term recurrence that we derived earlier:
 
@@ -750,6 +679,6 @@ As $n$ increases beyond $150,000$, the matrix-vector product time dominates. The
 Well, that's it. If you want to have a better look at the code or use it, it's all open source:
 
 * [Github Repository](https://github.com/lukefleed/two-pass-lanczos)
-* [LaTeX Report](https://github.com/lukefleed/two-pass-lanczos/blob/main/report/report.pdf)
+* [LaTeX Report](https://github.com/lukefleed/two-pass-lanczos/raw/master/tex/report.pdf)
 
 This was more of an exploration than a production-ready library, so expect rough edges. But I hope it gives an interesting perspective on how algorithm engineering and low-level implementation details can alter what seems like a straightforward trade-off on a blackboard.
