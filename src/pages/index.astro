@@ -1,106 +1,67 @@
 ---
-import Layout from "@layouts/Layout.astro";
-import Header from "@components/Header.astro";
-import Footer from "@components/Footer.astro";
-import LinkButton from "@components/LinkButton.astro";
-import Hr from "@components/Hr.astro";
-import Card from "@components/Card";
-import getSortedPosts from "@utils/getSortedPosts";
-import slugify from "@utils/slugify";
-import type { Frontmatter } from "src/types";
-import Socials from "@components/Socials.astro";
-import { SOCIALS } from "@config";
+import { getCollection } from "astro:content";
+import Layout from "@/layouts/Layout.astro";
+import Header from "@/components/Header.astro";
+import Footer from "@/components/Footer.astro";
+import Socials from "@/components/Socials.astro";
+import LinkButton from "@/components/LinkButton.astro";
+import Card from "@/components/Card.astro";
+import Hr from "@/components/Hr.astro";
+import getSortedPosts from "@/utils/getSortedPosts";
+import IconRss from "@/assets/icons/IconRss.svg";
+import IconArrowRight from "@/assets/icons/IconArrowRight.svg";
+import { SITE } from "@/config";
+import { SOCIALS } from "@/constants";
 
-const posts = await Astro.glob<Frontmatter>("../contents/**/*.md");
+const posts = await getCollection("blog");
 
 const sortedPosts = getSortedPosts(posts);
-const featuredPostsPosts = sortedPosts.filter(
-  ({ frontmatter }) => frontmatter.posts && frontmatter.featured
-);
-const featuredUniPosts = sortedPosts.filter(
-  ({ frontmatter }) => frontmatter.university && frontmatter.featured
-);
-
-const socialCount = SOCIALS.filter(social => social.active).length;
+const featuredPosts = sortedPosts.filter(({ data }) => data.featured);
+const recentPosts = sortedPosts.filter(({ data }) => !data.featured);
 ---
 
 <Layout>
   <Header />
-  <main id="main-content">
-    <section id="hero">
-      <h1>About Me <span role="img" aria-label="emoji">🖖</span></h1>
-      <img
-        src="/assets/luca-lombardo.jpg"
-        class="float-right w-56 h-56 rounded-full object-cover ml-4"
-      />
-      <p>
-        Hello There! I'm a mathematician who turned to the dark side of computer science. I have a Bachelor's Degree in Mathematics and I'm currently pursuing a Master's Degree in Computer Science at the University of Pisa, Italy. My main interests are in the fields of:
-      </p>
-
-      <ul class="indented-list">
-        <li>📕 Succinct data structures and data compression</li>
-        <li>📘 Algorithms and data structures</li>
-        <li>📗 High-performance computing</li>
-        <li>📙 Rust and low-level code optimization</li>
-      </ul>
-
-      For my Bachelor's thesis in mathematics I presented a new succinct data structure for extending the classical rank query (the one for bitvectors and strings) to Directed Acyclic Graphs. You can have a look at it here:
-
-      <div class="thesis-box">
-        <div class="thesis-content">
-          <div class="thesis-text">
-            <h3>Efficient Succinct Data Structures on DAGs</h3>
-            <p class="thesis-subtitle">Bachelor's Thesis in Mathematics - University of Pisa</p>
-            <p class="thesis-supervisor">Supervisor: Roberto Grossi</p>
-          </div>
-          <a href="/thesis/main.pdf" target="_blank" class="thesis-link">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-              <polyline points="14,2 14,8 20,8"></polyline>
-              <line x1="16" y1="13" x2="8" y2="13"></line>
-              <line x1="16" y1="17" x2="8" y2="17"></line>
-              <polyline points="10,9 9,9 8,9"></polyline>
-            </svg>
-            View PDF
-          </a>
-        </div>
-      </div>
-
-
+  <main id="main-content" data-layout="index">
+    <section id="hero" class="pt-8 pb-6">
+      <h1 class="my-4 inline-block text-4xl font-bold sm:my-8 sm:text-5xl">
+        Mingalaba
+      </h1>
+      <a
+        target="_blank"
+        href="/rss.xml"
+        class="inline-block"
+        aria-label="rss feed"
+        title="RSS Feed"
+      >
+        <IconRss
+          width={20}
+          height={20}
+          class="scale-125 stroke-accent stroke-3 rtl:-rotate-90"
+        />
+        <span class="sr-only">RSS Feed</span>
+      </a>
 
       <p>
-        I am also a member of <a href="https://phc.dm.unipi.it/">PHC</a>, a group of enthusiastic students about technology, software, hardware, and how they work together. We manage a few servers, websites and services for the mathematics department students. Sometimes we also organize seminars about various topics related to math and computer science (often together!).
+        AstroPaper is a minimal, responsive, accessible and SEO-friendly Astro
+        blog theme. This theme follows best practices and provides accessibility
+        out of the box. Light and dark mode are supported by default. Moreover,
+        additional color schemes can also be configured.
       </p>
-
-      <!-- <p>
-        Here you can see my coding hours from the beginning of 2023:
+      <p class="mt-2">
+        Read the blog posts or check
+        <LinkButton
+          class="underline decoration-dashed underline-offset-4 hover:text-accent"
+          href="https://github.com/satnaing/astro-paper#readme"
+        >
+          README
+        </LinkButton> for more info.
       </p>
-      <br />
-
-      <img
-        src="https://wakatime.com/badge/user/a3116382-7adb-43ba-9490-83130c4b22c5.svg"
-        alt="Coding Hours"
-        class="center"
-      />
-      <br /> -->
-
-      <!-- <p>
-        These are my most used languages (most of my Rust code is still private though, so it's not 100% accurate)
-      </p>
-      <br />
-
-      <img
-        src="https://github-readme-stats.vercel.app/api/top-langs/?username=lukefleed&hide=javascript,html,tex,shell,SCSS,CSS,Astro,Matlab,Makefile,C,TypeScript,M,Typst,jupyter%20notebook&theme=dracula"
-        alt="Most Used Languages"
-        class="center"
-        width="300"
-      />
-      <br /> -->
       {
         // only display if at least one social link is enabled
-        socialCount > 0 && (
-          <div class="social-wrapper">
-            <div class="social-links">Social Links:</div>
+        SOCIALS.length > 0 && (
+          <div class="mt-4 flex flex-col sm:flex-row sm:items-center">
+            <div class="me-2 mb-1 whitespace-nowrap sm:mb-0">Social Links:</div>
             <Socials />
           </div>
         )
@@ -110,166 +71,51 @@ const socialCount = SOCIALS.filter(social => social.active).length;
     <Hr />
 
     {
-      featuredPostsPosts.length > 0 && (
+      featuredPosts.length > 0 && (
         <>
-          <section id="featured-posts">
-            <h2>Posts</h2>
+          <section id="featured" class="pt-12 pb-6">
+            <h2 class="text-2xl font-semibold tracking-wide">Featured</h2>
             <ul>
-              {featuredPostsPosts.map(({ frontmatter }) => (
-                <Card
-                  href={`/posts/${slugify(frontmatter)}`}
-                  post={frontmatter}
-                  secHeading={false}
-                />
+              {featuredPosts.map(data => (
+                <Card variant="h3" {...data} />
               ))}
             </ul>
           </section>
-          <Hr />
+          {recentPosts.length > 0 && <Hr />}
         </>
       )
     }
 
     {
-      featuredUniPosts.length > 0 && (
-        <>
-          <section id="featured-uni">
-            <h2>University</h2>
-            <ul>
-              {featuredUniPosts.map(({ frontmatter }) => (
-                <Card
-                  href={`/university/${slugify(frontmatter)}`}
-                  post={frontmatter}
-                  secHeading={false}
-                />
-              ))}
-            </ul>
-          </section>
-          <Hr />
-        </>
+      recentPosts.length > 0 && (
+        <section id="recent-posts" class="pt-12 pb-6">
+          <h2 class="text-2xl font-semibold tracking-wide">Recent Posts</h2>
+          <ul>
+            {recentPosts.map(
+              (data, index) =>
+                index < SITE.postPerIndex && <Card variant="h3" {...data} />
+            )}
+          </ul>
+        </section>
       )
     }
 
-    <section id="editorial">
-      <h2>Editorial activity</h2>
-      <br />
-      <p>
-        I used to write cool articles and guides for a tech blog called <a href="https://morethantech.it/">MoreThanTech</a>. You can read all my articles (in italian) <a href="https://morethantech.it/autori/11_luca-lombardo">here</a>. I mostly talked about learning Linux, fixing Windows, interesting open-source projects and exotic mechanical keyboards..
-      </p>
-    </section>
-
-    <Hr />
-
-    <section id="music">
-      <h2>Music</h2>
-      <br />
-      <p>
-
-      A collection of my public playlists on Spotify. Nothing too fancy, just a bunch of songs that I like
-      <br />
-      <br />
-      <iframe style="border-radius:12px" src="https://open.spotify.com/embed/playlist/74zlQe6CqUEda4iT1jGDGv?utm_source=generator" width="100%" height="80" frameborder="0" allowfullscreen="" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>
-
-      <br />
-
-      <iframe style="border-radius:12px" src="https://open.spotify.com/embed/playlist/3HY2IxleMr6CDvLW1LgoT0?utm_source=generator" width="100%" height="80" frameborder="0" allowfullscreen="" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>
-
-      <br />
-
-      <iframe style="border-radius:12px" src="https://open.spotify.com/embed/playlist/0eMxAInTiwg18OV8XEOpqk?utm_source=generator" width="100%" height="80" frameborder="0" allowfullscreen="" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>
-
-      </p>
-    </section>
-
-
-    <Hr />
-
-
+    <div class="my-8 text-center">
+      <LinkButton href="/posts/">
+        All Posts
+        <IconArrowRight class="inline-block rtl:-rotate-180" />
+      </LinkButton>
+    </div>
   </main>
-
   <Footer />
 </Layout>
 
-<style>
-  /* ===== Hero Section ===== */
-  #hero {
-    @apply pt-8 pb-6;
-  }
-  #hero h1 {
-    @apply inline-block font-bold my-4 sm:my-8 text-3xl sm:text-5xl;
-  }
-  #hero .rss-link {
-    @apply mb-6;
-  }
-  #hero .rss-icon {
-    @apply h-6 w-6 scale-110 sm:scale-125 mb-2 sm:mb-3 fill-skin-accent;
-  }
-  #hero p {
-    @apply my-2;
-  }
-  .indented-list {
-    @apply ml-6 my-4;
-  }
-  .social-wrapper {
-    @apply flex flex-col sm:flex-row sm:items-center mt-4;
-  }
-  .social-links {
-    @apply whitespace-nowrap mr-2 sm:mb-0 mb-1;
-  }
-
-  /* ===== Thesis Box ===== */
-  .thesis-box {
-    @apply my-6 p-4 bg-skin-fill border border-skin-line rounded-lg shadow-md hover:shadow-lg transition-shadow duration-300;
-  }
-  .thesis-content {
-    @apply flex items-center gap-4;
-  }
-  @media (max-width: 768px) {
-    .thesis-content {
-      @apply flex-col items-start gap-3;
+<script>
+  document.addEventListener("astro:page-load", () => {
+    const indexLayout = (document.querySelector("#main-content") as HTMLElement)
+      ?.dataset?.layout;
+    if (indexLayout) {
+      sessionStorage.setItem("backUrl", "/");
     }
-  }
-  .thesis-text {
-    @apply flex-grow;
-  }
-  .thesis-text h3 {
-    @apply font-semibold text-xl text-skin-accent mb-1 leading-tight;
-  }
-  .thesis-subtitle {
-    @apply text-sm text-skin-base font-medium mb-1 opacity-90;
-  }
-  .thesis-text p {
-    @apply text-sm text-skin-base opacity-80 my-0;
-  }
-  .thesis-supervisor {
-    @apply text-xs text-skin-base opacity-70 mt-1 italic;
-  }
-  .thesis-link {
-    @apply flex items-center gap-1 px-3 py-1.5 bg-skin-accent text-skin-inverted rounded-md hover:bg-opacity-90 transition-all duration-200 text-xs font-medium no-underline;
-  }
-  .thesis-link:hover {
-    @apply scale-105;
-  }
-
-  /* ===== Featured & Recent Posts Sections ===== */
-  #featured-posts,
-  #featured-uni,
-  #editorial,
-  #music {
-    @apply pt-12 pb-6;
-  }
-  #featured-posts h2,
-  #featured-uni h2,
-  #editorial h2,
-  #music h2 {
-    @apply font-semibold text-2xl tracking-wide;
-  }
-  #featured-posts p,
-  #featured-uni p,
-  #editorial p,
-  #music p {
-    /* Add any common paragraph styles here if needed */
-  }
-  .all-posts-btn-wrapper {
-    @apply text-center my-8;
-  }
-</style>
+  });
+</script>

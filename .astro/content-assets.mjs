@@ -1,1 +1,10 @@
-export default new Map();
+
+import __ASTRO_IMAGE_IMPORT_Z9rgle from "@/assets/images/forrest-gump-quote.png?astroContentImageFlag=&importer=src%2Fdata%2Fblog%2Fhow-to-update-dependencies.md";
+import __ASTRO_IMAGE_IMPORT_ZNsEp4 from "../../assets/images/forrest-gump-quote.png?astroContentImageFlag=&importer=src%2Fdata%2Fblog%2Fhow-to-update-dependencies.md";
+import __ASTRO_IMAGE_IMPORT_jBKWm from "@/assets/images/AstroPaper-v3.png?astroContentImageFlag=&importer=src%2Fdata%2Fblog%2F_releases%2Fastro-paper-3.md";
+import __ASTRO_IMAGE_IMPORT_1GYyO1 from "@/assets/images/AstroPaper-v4.png?astroContentImageFlag=&importer=src%2Fdata%2Fblog%2F_releases%2Fastro-paper-4.md";
+import __ASTRO_IMAGE_IMPORT_ZXkVwg from "../../../assets/images/AstroPaper-v4.png?astroContentImageFlag=&importer=src%2Fdata%2Fblog%2F_releases%2Fastro-paper-4.md";
+import __ASTRO_IMAGE_IMPORT_Z1YOL8g from "@/assets/images/AstroPaper-v5.png?astroContentImageFlag=&importer=src%2Fdata%2Fblog%2F_releases%2Fastro-paper-5.md";
+import __ASTRO_IMAGE_IMPORT_p1Qko from "../../../assets/images/AstroPaper-v5.png?astroContentImageFlag=&importer=src%2Fdata%2Fblog%2F_releases%2Fastro-paper-5.md";
+export default new Map([["@/assets/images/forrest-gump-quote.png?astroContentImageFlag=&importer=src%2Fdata%2Fblog%2Fhow-to-update-dependencies.md", __ASTRO_IMAGE_IMPORT_Z9rgle], ["../../assets/images/forrest-gump-quote.png?astroContentImageFlag=&importer=src%2Fdata%2Fblog%2Fhow-to-update-dependencies.md", __ASTRO_IMAGE_IMPORT_ZNsEp4], ["@/assets/images/AstroPaper-v3.png?astroContentImageFlag=&importer=src%2Fdata%2Fblog%2F_releases%2Fastro-paper-3.md", __ASTRO_IMAGE_IMPORT_jBKWm], ["@/assets/images/AstroPaper-v4.png?astroContentImageFlag=&importer=src%2Fdata%2Fblog%2F_releases%2Fastro-paper-4.md", __ASTRO_IMAGE_IMPORT_1GYyO1], ["../../../assets/images/AstroPaper-v4.png?astroContentImageFlag=&importer=src%2Fdata%2Fblog%2F_releases%2Fastro-paper-4.md", __ASTRO_IMAGE_IMPORT_ZXkVwg], ["@/assets/images/AstroPaper-v5.png?astroContentImageFlag=&importer=src%2Fdata%2Fblog%2F_releases%2Fastro-paper-5.md", __ASTRO_IMAGE_IMPORT_Z1YOL8g], ["../../../assets/images/AstroPaper-v5.png?astroContentImageFlag=&importer=src%2Fdata%2Fblog%2F_releases%2Fastro-paper-5.md", __ASTRO_IMAGE_IMPORT_p1Qko]]);
+		

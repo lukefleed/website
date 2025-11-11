@@ -1,18 +1,22 @@
+import type { CollectionEntry } from "astro:content";
 import { slugifyStr } from "./slugify";
-import type { MarkdownInstance } from "astro";
-import type { Frontmatter } from "../types";
+import postFilter from "./postFilter";
 
-const getUniqueTags = (posts: MarkdownInstance<Frontmatter>[]) => {
-  let tags: string[] = [];
-  const filteredPosts = posts.filter(({ frontmatter }) => !frontmatter.draft);
-  filteredPosts.forEach(post => {
-    tags = [...tags, ...post.frontmatter.tags]
-      .map(tag => slugifyStr(tag))
-      .filter(
-        (value: string, index: number, self: string[]) =>
-          self.indexOf(value) === index
-      );
-  });
+interface Tag {
+  tag: string;
+  tagName: string;
+}
+
+const getUniqueTags = (posts: CollectionEntry<"blog">[]) => {
+  const tags: Tag[] = posts
+    .filter(postFilter)
+    .flatMap(post => post.data.tags)
+    .map(tag => ({ tag: slugifyStr(tag), tagName: tag }))
+    .filter(
+      (value, index, self) =>
+        self.findIndex(tag => tag.tag === value.tag) === index
+    )
+    .sort((tagA, tagB) => tagA.tag.localeCompare(tagB.tag));
   return tags;
 };
 
