@@ -42,6 +42,10 @@ const recentPosts = sortedPosts.filter(({ data }) => !data.featured);
         <span class="sr-only">RSS Feed</span>
       </a> -->
 
+      <p class="mb-4">
+        <span id="typewriter"></span><span id="cursor" class="animate-pulse">|</span>
+      </p>
+
       <p>
         I have a Bachelor's Degree in Mathematics and I'm currently pursuing a
         Master's Degree in Computer Science at the University of Pisa, Italy.
@@ -131,4 +135,67 @@ const recentPosts = sortedPosts.filter(({ data }) => !data.featured);
       sessionStorage.setItem("backUrl", "/");
     }
   });
+
+  // Typewriter effect
+  const phrases = [
+    "I'm a mathematician",
+    "I'm a computer scientist",
+    "I'm a mathematician who turned to the dark side"
+  ];
+
+  const typewriterEl = document.getElementById("typewriter");
+  if (typewriterEl) {
+    let phraseIndex = 0;
+    let charIndex = 0;
+    let isDeleting = false;
+    let isWaitingBeforeDelete = false;
+
+    function type() {
+      const currentPhrase = phrases[phraseIndex];
+
+      if (isWaitingBeforeDelete) {
+        // Wait 1.5 seconds before starting to delete
+        setTimeout(() => {
+          isWaitingBeforeDelete = false;
+          isDeleting = true;
+          type();
+        }, 1500);
+        return;
+      }
+
+      if (isDeleting) {
+        charIndex--;
+      } else {
+        charIndex++;
+      }
+
+      if (typewriterEl) {
+        typewriterEl.textContent = currentPhrase.substring(0, charIndex);
+      }
+
+      if (!isDeleting && charIndex === currentPhrase.length) {
+        // If this is the last phrase, don't delete it
+        if (phraseIndex === phrases.length - 1) {
+          return; // Stop here
+        }
+        isWaitingBeforeDelete = true;
+        type();
+        return;
+      }
+
+      if (isDeleting && charIndex === 0) {
+        isDeleting = false;
+        phraseIndex++;
+        if (phraseIndex >= phrases.length) {
+          phraseIndex = phrases.length - 1;
+          return;
+        }
+      }
+
+      const speed = isDeleting ? 50 : 70;
+      setTimeout(type, speed);
+    }
+
+    type();
+  }
 </script>
