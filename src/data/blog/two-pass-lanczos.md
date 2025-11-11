@@ -11,7 +11,10 @@ tags:
 description: Implementing a cache-friendly, low-memory two-pass Lanczos algorithm in Rust, focusing on efficient memory access patterns and minimal allocations.
 ---
 
-The standard Lanczos method for computing matrix functions has a brutal memory requirement: storing an $n \times k$ basis matrix that grows with every iteration. For a 500,000-variable problem needing 1,000 iterations, that's ~4 GB just for the basis. In this post we will explore one of the most straightforward solutions to this problem: a two-pass variant of the Lanczos algorithm that only requires O(n) memory at the cost of doubling the number of matrix-vector products. The surprising part? When implemented carefully, the two-pass version isn't just memory-efficient, it can be faster for certain problems. In this post we will try to do some algorithm engineering to understand why.
+
+The standard Lanczos method for computing matrix functions has a brutal memory requirement: storing an $n \times k$ basis matrix that grows with every iteration. For a $500.000$-variable problem needing $1000$ iterations, that's roughly 4 GB just for the basis.
+
+In this post, we will explore one of the most straightforward solutions to this problem: a two-pass variant of the Lanczos algorithm that only requires $O(n)$ memory at the cost of doubling the number of matrix-vector products. The surprising part is that when implemented carefully, the two-pass version isn't just memory-efficient—it can be faster for certain problems. We will dig into why.
 
 - All code is available on GitHub: [two-pass-lanczos](https://github.com/lukefleed/two-pass-lanczos)
 - The full technical report with proofs and additional experiments: [report.pdf](/two-pass-lanczos/tex/report.pdf)
@@ -35,79 +38,73 @@ Indeed, there are a lot problems with computing $f(\mathbf{A})$ directly. First 
 
 However we know that given any matrix function $f$ defined on the spectrum of $\mathbf{A}$, we can express $f(\mathbf{A})$ as a polynomial in $\mathbf{A}$ of degree at most $n$ (the size of the matrix) such that $f(\mathbf{A}) = p_{n}(\mathbf{A})$ (this is a consequence of the Cayley-Hamilton theorem). This polynomial interpolates $f$ and its derivatives in the Hermitian sense at the eigenvalues of $\mathbf{A}$.
 
-This gives a good and a bad news: the good news is that, well, we can express $f(\mathbf{A})$ as a polynomial in $\mathbf{A}$. The bad news is that the degree of this polynomial can be as high as $n$, which is huge for large problems. The idea is then to find a low-degree polynomial approximation to $f$ that is "good enough" for our purposes. If we can find a polynomial $p_k$ of degree $k \ll n$ such that $p_k(\mathbf{A}) \approx f(\mathbf{A})$, then we can approximate the solution as:
+This gives us a good and a bad news: the good news is that, well, we can express $f(\mathbf{A})$ as a polynomial in $\mathbf{A}$. The bad news is that the degree of this polynomial can be as high as $n$, which is huge for large problems. The idea is then to find a low-degree polynomial approximation to $f$ that is _good enough_ for our purposes. If we can find a polynomial $p_k$ of degree $k \ll n$ such that $p_k(\mathbf{A}) \approx f(\mathbf{A})$, then we can approximate the solution as:
 
 $$
 f(\mathbf{A})\mathbf{b} \approx p_k(\mathbf{A})\mathbf{b} = \sum_{i=0}^k c_i \mathbf{A}^i \mathbf{b}
 $$
 
+This polynomial only involves vectors within a specific subspace.
+
 ## Krylov Projection
 
-We notice that the polynomial approximation only involves vectors that lie in the following space, called the Krylov subspace of order $k$:
+We can notice that $p_k(\mathbf{A})\mathbf{b}$ only depends on vectors in the Krylov subspace of order $k$
 
 $$
 \mathcal{K}_k(\mathbf{A}, \mathbf{b}) = \text{span}\{\mathbf{b}, \mathbf{Ab}, \mathbf{A}^2\mathbf{b}, \ldots, \mathbf{A}^{k-1}\mathbf{b}\}
 $$
 
-We can then search the approximate solution $\mathbf{x}_k$ in this subspace by just doing matrix-vector products with $\mathbf{A}$. This is great because it's the only operation we can do efficiently for large sparse matrices.
+This is fortunate: we can compute an approximate solution by staying within this space, which only requires repeated matrix-vector products with $\mathbf{A}$. For large sparse matrices, that's the only operation we can do efficiently anyway.
 
-> Note that we don't need to construct and keep in memory $\mathbf{A}^j$ for any $j$. We can just compute it iteratively as $\mathbf{A}(\mathbf{A}^{j-1}\mathbf{b})$.
+> We don't need to construct $\mathbf{A}^j$ explicitly. We compute iteratively: $\mathbf{A}(\mathbf{A}^{j-1}\mathbf{b})$.
 
-### Finding a basis
+But there's a problem: the raw vectors $\{\mathbf{A}^j\mathbf{b}\}$ form a terrible basis. They quickly become nearly parallel, making any computation numerically unstable. We need an orthonormal basis.
 
-Technically, we already have a basis for this space. The raw vectors $\{\mathbf{A}^j\mathbf{b}\}$ form a basis, but it's a terrible one for computation since they quickly become nearly parallel. We need a stable, orthonormal basis. The standard way to build one is the Arnoldi process. It's essentially a Gram-Schmidt procedure tailored for Krylov subspaces.
+### Building an Orthonormal Basis
 
-We start by normalizing our initial vector, $\mathbf{v}_1 = \mathbf{b} / \|\mathbf{b}\|_2$. The process is iterative. At each step $j$, we first create a new candidate vector by applying the operator, $\mathbf{w}_j = \mathbf{A}\mathbf{v}_j$. Next, we make it orthogonal to our existing basis vectors $\mathbf{v}_1, \ldots, \mathbf{v}_j$ using the Gram-Schmidt procedure. This involves subtracting the projections:
+The standard method is the Arnoldi process, which is Gram-Schmidt applied to Krylov subspaces. We start by normalizing $\mathbf{v}_1 = \mathbf{b} / \|\mathbf{b}\|_2$. Then, iteratively:
+
+1. Compute a new candidate: $\mathbf{w}_j = \mathbf{A}\mathbf{v}_j$
+2. Orthogonalize against all existing basis vectors:
 
 $$
 \tilde{\mathbf{v}}_j = \mathbf{w}_j - \sum_{i=1}^j (\mathbf{v}_i^H \mathbf{w}_j) \mathbf{v}_i
 $$
 
-The coefficients we compute here, $h_{ij} = \mathbf{v}_i^H \mathbf{w}_j = \mathbf{v}_i^H \mathbf{A} \mathbf{v}_j$, become the entries of our projected matrix. Finally, we normalize the new vector to get the next basis vector, where $h_{j+1, j} = \|\tilde{\mathbf{v}}_j\|_2$ and $\mathbf{v}_{j+1} = \tilde{\mathbf{v}}_j / h_{j+1, j}$.
+3. Normalize: $\mathbf{v}_{j+1} = \tilde{\mathbf{v}}_j / \|\tilde{\mathbf{v}}_j\|_2$
 
-After $k$ steps, we end up with
+The coefficients $h_{ij} = \mathbf{v}_i^H \mathbf{w}_j$ become entries of a projected matrix. After $k$ iterations, we have:
 
-- $\mathbf{V}_k \in \mathbb{C}^{n \times k} = [\mathbf{v}_1, \ldots, \mathbf{v}_k]$, an orthonormal basis for $\mathcal{K}_k(\mathbf{A}, \mathbf{b})$.
-- $\mathbf{H}_k \in \mathbb{C}^{k \times k}$, an upper Hessenberg matrix with entries $h_{ij}$. This matrix represents the projection of $\mathbf{A}$ onto the Krylov subspace.
+- $\mathbf{V}_k = [\mathbf{v}_1, \ldots, \mathbf{v}_k]$: an orthonormal basis for $\mathcal{K}_k(\mathbf{A}, \mathbf{b})$
+- $\mathbf{H}_k$: an upper Hessenberg matrix representing the projection of $\mathbf{A}$ onto this subspace
 
-> Why $\mathbf{H}_k$ is upper Hessenberg? Because in the Arnoldi process, each new vector $\mathbf{v}_{j+1}$ is orthogonalized against all previous vectors $\mathbf{v}_1, \ldots, \mathbf{v}_j$. This means that when we compute the projections $\mathbf{v}_i^H \mathbf{A} \mathbf{v}_j$, only the first $j+1$ basis vectors contribute to the new vector. Therefore, $h_{ij} = 0$ for all $i > j + 1$, resulting in an upper Hessenberg structure.
-
-We can summarize the whole process with the matrix formulation known as the Arnoldi decomposition:
+We can express this relationship with the Arnoldi decomposition:
 
 $$
 \mathbf{A}\mathbf{V}_k = \mathbf{V}_k \mathbf{H}_k + h_{k+1,k} \mathbf{v}_{k+1} \mathbf{e}_k^T
 $$
 
-How do we use this to approximate our original problem? Well it depends on what we consider a "good" approximation. For this blog post we'll just consider Full Orthogonal Method (FOM), which enforce that the residual $\mathbf{r}_k = f(\mathbf{A})\mathbf{b} - \mathbf{x}_k$ is orthogonal to the Krylov subspace. Therefore, we can express the approximate solution as:
+### Solving in the Reduced Space
+
+Now we approximate our original problem by solving it in the small $k$-dimensional space. Using the Full Orthogonal Method (FOM), we enforce that the residual is orthogonal to
+the Krylov subspace. This gives:
 
 $$
 \mathbf{x}_k = \mathbf{V}_k \mathbf{y}_k
 $$
 
-where $\mathbf{y}_k$ is a small $k$-dimensional vector that we need to compute as
+where $\mathbf{y}_k$ is computed as:
 
 $$
 \mathbf{y}_k = f(\mathbf{H}_k) \mathbf{e}_1 \|\mathbf{b}\|_2
 $$
 
-> The term $\mathbf{e}_1 \|\mathbf{b}\|_2$ comes from the fact that our initial vector $\mathbf{v}_1$ is $\mathbf{b}$ normalized. In the Krylov subspace, this corresponds to the first basis vector scaled by the norm of $\mathbf{b}$. This is just the projection of $\mathbf{b}$ onto the Krylov subspace.
+The heavy lifting is now on computing $f(\mathbf{H}_k)$, a small $k \times k$ matrix.
+Since $k \ll n$, we can afford direct methods like Schur-Parlett ($O(k^3)$).
 
-This problems is now reduced to computing $f(\mathbf{H}_k)$, which is a small $k \times k$ matrix. This is relatively cheap since $k \ll n$ and we can use direct methods like the Schur-Parlett method that require $O(k^3)$ operations.
+> For $f(z) = z^{-1}$ (linear systems), this reduces to solving $\mathbf{H}_k \mathbf{y}_k = \mathbf{e}_1 \|\mathbf{b}\|_2$ with LU decomposition.
 
-> If we choose $f(z) = z^{-1}$, then is reduces to solving the linear system $\mathbf{H}_k \mathbf{y}_k = \mathbf{e}_1 \|\mathbf{b}\|_2$, which can be done efficiently with direct methods like LU decomposition.
-
-<!--
-If we left-multiply by $\mathbf{V}_k^H$, we see that $\mathbf{H}_k = \mathbf{V}_k^H \mathbf{A} \mathbf{V}_k$. This is the key: $\mathbf{H}_k$ is the projection of the huge operator $\mathbf{A}$ onto our small Krylov subspace. We can now approximate our original problem by solving it in this small space:
-
-$$
-\mathbf{x}_k = \|\mathbf{b}\|_2 \mathbf{V}_k f(\mathbf{H}_k) \mathbf{e}_1
-$$
-
-This is a huge win. We've turned a problem of dimension $n$ into one of dimension $k$, which is cheap to solve.
-
-But we can do even better. Our problem states that $\mathbf{A}$ is Hermitian. This imposes a special structure on the projection. Since $\mathbf{A} = \mathbf{A}^H$, the projection $\mathbf{H}_k$ must also be Hermitian. A matrix that is both upper Hessenberg and Hermitian has to be real, symmetric, and tridiagonal. This simplification is what turns the general Arnoldi process into the much more efficient symmetric Lanczos process. -->
-
-# Lanczos Iterations
+<!-- # Lanczos Iterations
 
 At the beginning of this post we said that $\mathbf{A}$ is Hermitian. This means that, in the real case, $\mathbf{A}$ is symmetric: $\mathbf{A} = \mathbf{A}^T$. In the complex case, it means $\mathbf{A} = \mathbf{A}^H$, where $\mathbf{A}^H$ is the conjugate transpose. This special property has huge implications for the Krylov projection.
 
@@ -177,9 +174,152 @@ This sum requires that all basis vectors $\mathbf{v}_j$ are stored in memory. Th
 
 The memory complexity is $O(nk)$, which can be prohibitive for large $n$ and moderate $k$. For example, with $n = 500,000$ and $k = 1,000$, storing $\mathbf{V}_k$ alone requires about 4 GB of memory (assuming double-precision complex numbers). This can be a serious limitation in practice, this is why there is a lot of interest in reducing the memory footprint of Krylov methods.
 
-Let's see how we can do better in terms of memory usage.
+Let's see how we can do better in terms of memory usage. -->
 
-# Two-Pass Algorithm
+# The Lanczos Algorithm: From General to Specialized
+
+When $\mathbf{A}$ is Hermitian (or symmetric in the real case), the general Arnoldi
+process simplifies dramatically. We can prove that $\mathbf{H}_k = \mathbf{V}_k^H \mathbf{A} \mathbf{V}_k$ must also be Hermitian. A matrix that is both upper Hessenberg *and* Hermitian must be real, symmetric, and tridiagonal. This is a _huge_ simplification.
+
+In the literature, this projected matrix is denoted $\mathbf{T}_k$ to highlight its
+tridiagonal structure:
+
+$$
+\mathbf{T}_k = \begin{pmatrix}
+\alpha_1 & \beta_1 & & \\
+\beta_1 & \alpha_2 & \beta_2 & \\
+& \beta_2 & \ddots & \ddots \\
+& & \ddots & \alpha_k
+\end{pmatrix}
+$$
+
+where $\alpha_j \in \mathbb{R}$ are the diagonal elements and $\beta_j \in \mathbb{R}$ are the off-diagonals (subdiagonals from the orthogonalization).
+
+## The Three-Term Recurrence
+
+This tridiagonal structure leads to a beautiful simplification. To build the next basis
+vector $\mathbf{v}_{j+1}$, we don't need the entire history of vectors. We only need
+the two previous ones. Since $\mathbf{A}$ is Hermitian, this guarantees that
+any new vector is _automatically_ orthogonal to all earlier vectors (beyond the previous two). So we can skip the full orthogonalization and use a simple three-term recurrence:
+
+$$
+\mathbf{A}\mathbf{v}_j = \beta_{j-1}\mathbf{v}_{j-1} + \alpha_j \mathbf{v}_j + \beta_j \mathbf{v}_{j+1}
+$$
+
+Rearranging gives us an algorithm to compute $\mathbf{v}_{j+1}$ directly:
+
+1. Compute the candidate: $w_{j+1} = \mathbf{A}\mathbf{v}_j$
+2. Extract the diagonal coefficient: $\alpha_j = \mathbf{v}_j^H w_{j+1}$
+3. Orthogonalize against the two previous vectors:
+
+$$
+\tilde{\mathbf{v}}_{j+1} = w_{j+1} - \alpha_j \mathbf{v}_j - \beta_{j-1}\mathbf{v}_{j-1}
+$$
+
+4. Normalize: $\beta_j = \|\tilde{\mathbf{v}}_{j+1}\|_2$ and $\mathbf{v}_{j+1} = \tilde{\mathbf{v}}_{j+1} / \beta_j$
+
+This is known as the Lanczos algorithm. It's more efficient than Arnoldi because each iteration only orthogonalizes against two previous vectors instead of all prior ones.
+
+## The Reconstruction Problem
+
+After $k$ iterations, we end up with the tridiagonal matrix $\mathbf{T}_k$ and all $k$ basis vectors $\mathbf{V}_k = [\mathbf{v}_1, \ldots, \mathbf{v}_k]$. We can then reconstruct the approximate solution as:
+
+$$
+\mathbf{x}_k = \mathbf{V}_k \mathbf{y}_k
+$$
+
+where $\mathbf{y}_k = f(\mathbf{T}_k) \mathbf{e}_1 \|\mathbf{b}\|_2$ is solved from the small tridiagonal matrix.
+
+There is a timing problem however: we cannot compute the coefficients $\mathbf{y}_k$
+until all $k$ iterations are complete. The full matrix $\mathbf{T}_k$ is only available
+at the end, so we must store every basis vector $\mathbf{v}_j$ along the way, leading to a memory cost of $O(nk)$.
+
+So we're left with a choice: whether we store all the basis vectors and solve the problem in $k$ passes, or find a way to avoid storing them. There is a middle ground.
+
+> There are also techniques to compress the basis vectors, have a look [here](https://arxiv.org/abs/2403.04390)
+
+
+# The Two-Pass Algorithm
+
+Here's where we break the timing deadlock. The insight that we don't actually need to store the basis vectors if we can afford to compute them twice
+
+Think about what we have after the first pass. We've computed all the $\alpha_j$ and $\beta_j$ coefficients that compose the entire tridiagonal matrix $\mathbf{T}_k$. These numbers are small compared to the full basis. What if we kept only these scalars, discarded all the vectors, and then replayed the Lanczos recurrence a second time? We'd regenerate the same basis, and this time we'd use it to build the solution.
+
+This comes at a cost. We run Lanczos twice, so we pay for $2k$ matrix-vector products instead of $k$. But we only ever store a constant number of vectors in memory, no $O(nk)$ basis matrix. The memory complexity drops to $O(n)$.
+
+It sounds like a bad trade at first. But as we'll see later, the cache behavior of this
+two-pass approach can actually make it as fast (or even faster) on real hardware if well optimized.
+
+## First Pass: Compute the Projected Problem
+
+We initialize $\mathbf{v}_1 = \mathbf{b} / \|\mathbf{b}\|_2$ and set $\beta_0 = 0$, $\mathbf{v}_0 = \mathbf{0}$.Then we run the standard Lanczos recurrence:
+
+$$
+w_j = \mathbf{A}\mathbf{v}_j
+$$
+
+$$
+\alpha_j = \mathbf{v}_j^H w_j
+$$
+
+$$
+\tilde{\mathbf{v}}_{j+1} = w_j - \alpha_j \mathbf{v}_j - \beta_{j-1}\mathbf{v}_{j-1}
+$$
+
+$$
+\beta_j = \|\tilde{\mathbf{v}}_{j+1}\|_2, \quad \mathbf{v}_{j+1} = \tilde{\mathbf{v}}_{j+1} / \beta_j
+$$
+
+At each step, we record $\alpha_j$ and $\beta_j$. But we *do not* store $\mathbf{v}_j$.
+Instead, we discard it immediately after computing $\mathbf{v}_{j+1}$. In this way we only keep in memory at most just three vectors at any time ($\mathbf{v}_{j-1}$, $\mathbf{v}_j$, and the working vector $w_j$).
+
+After $k$ iterations, we have the full set $\{\alpha_1, \beta_1, \ldots, \alpha_k, \beta_k\}$. These $O(k)$ scalars define the tridiagonal matrix $\mathbf{T}_k$. We can now solve:
+
+$$
+\mathbf{y}_k = f(\mathbf{T}_k) \mathbf{e}_1 \|\mathbf{b}\|_2
+$$
+
+This is the solution in the reduced space. Now that we have the coefficients we need to build $\mathbf{x}_k$.
+
+## Second Pass: Reconstruct and Accumulate
+
+With $\mathbf{y}_k$ in memory, we replay the Lanczos recurrence _exactly as before_. We start with the same initialization ($\mathbf{v}_1$, $\beta_0$, $\mathbf{v}_0$) and apply the same sequence of operations, using the stored scalars $\alpha_j$ and $\beta_j$ to reconstruct each basis vector on demand. We can write some rust-like pseudocode for this second pass to get a feel for it:
+
+```rust
+let mut x_k = vec![0.0; n];
+let mut v_prev = vec![0.0; n];
+let mut v_curr = b.clone() / b_norm;
+
+for j in 1..=k {
+    let w = A @ v_curr;  // Matrix-vector product
+
+    // We don't recompute alpha/beta; we already have them from pass 1
+    let alpha_j = alphas[j - 1];
+    let beta_prev = j > 1 ? betas[j - 2] : 0.0;
+
+    // Accumulate the solution
+    x_k += y_k[j - 1] * v_curr;
+
+    // Regenerate the next basis vector for the *next* iteration
+    let v_next = (w - alpha_j * v_curr - beta_prev * v_prev) / betas[j - 1];
+
+    // Slide the window forward
+    v_prev = v_curr;
+    v_curr = v_next;
+}
+```
+
+This loop regenerates each $\mathbf{v}_j$ on demand and immediately uses it to update the solution.
+Once we've accumulated $(\mathbf{y}_k)_j \mathbf{v}_j$ into $\mathbf{x}_k$, we discard the vector. We never store the full basis.
+
+### A Subtle Numerical Point
+
+There is one detail worth noting: floating-point arithmetic is deterministic. When we replay the Lanczos recurrence in the second pass with the exact same inputs and the exact same order of operations, we get bitwise-identical vectors. The $\mathbf{v}_j$ regenerated in pass 2 are identical to the ones computed in pass 1.
+
+However, the order in which we accumulate the solution differs. In a standard Lanczos,
+$\mathbf{x}_k$ is built as a single matrix-vector product: $\mathbf{x}_k = \mathbf{V}_k \mathbf{y}_k$ (a `gemv` call in BLAS). In the two-pass method, it's built as a loop of scaled vector additions (a series of `axpy` calls). These operations accumulate rounding error differently, so the final solution differs slightly, typically by machine epsilon. This rarely matters in practice, and convergence is unaffected.
+
+<!-- # Two-Pass Algorithm
 
 To avoid storing the full basis $\mathbf{V}_k$, we can divide the Lanczos process into two separate passes over the data. The idea is to first run the Lanczos iterations to compute and store only the tridiagonal matrix $\mathbf{T}_k$ (i.e., the scalars $\alpha_j$ and $\beta_j$), and then in a second pass, regenerate the basis vectors $\mathbf{v}_j$ one at a time to accumulate the final solution $\mathbf{x}_k$.
 
@@ -208,7 +348,7 @@ Then, we discard $\mathbf{v}_j$ and move on to the next one. This way, we never 
 - The basis vectors are generated in the same order as in the first pass, since floating-point arithmetic is deterministic, this ensures that the basis is bitwise identical to the one that would have been computed in a single pass.
 - The solution, however, will change slightly due to the different order of operations in floating-point arithmetic. In the standard Lanczos, the solution is built as matrix-vector product $\mathbf{V}_k \mathbf{y}_k$, while in the two-pass method, it's built as a sum of scaled vectors. This is compiles to two different BLAS calls (`gemv` vs `axpy`), which have different rounding errors. However, in practice, the difference is in the order of machine epsilon and doesn't affect convergence.
 
-Of course. Here is the content as a Markdown snippet.
+Of course. Here is the content as a Markdown snippet. -->
 
 # Implementation
 

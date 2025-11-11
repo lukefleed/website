@@ -74,6 +74,13 @@ html[data-theme="dark"] {
   border-radius: 50%;
   object-fit: cover;
   border: 2px solid var(--color-accent);
+  margin: 0 auto 1rem;
+}
+
+@media (min-width: 640px) {
+  .profile-image {
+    margin: 0 0 1rem 1rem;
+  }
 }
 
 /* Source: https://piccalil.li/blog/a-more-modern-css-reset/ */
