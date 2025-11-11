@@ -6,7 +6,6 @@ slug: competitive-programming-reminders
 featured: false
 draft: true
 tags:
-  - Competitive Programming
   - Algorithms and Data Structures
 description: An incomplete summary of the most important algorithms and data structures to remember before a coding interview
 ---
