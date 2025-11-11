@@ -14,7 +14,7 @@ export async function getStaticPaths() {
   );
 
   return posts.map(post => ({
-    params: { slug: getPath(post.id, post.filePath, false) },
+    params: { slug: getPath(post.id, post.filePath, "blog", false) },
     props: post,
   }));
 }
@@ -27,7 +27,9 @@ export const GET: APIRoute = async ({ props }) => {
     });
   }
 
-  const buffer = await generateOgImageForPost(props as CollectionEntry<"blog">);
+  const buffer = await generateOgImageForPost(
+    props as CollectionEntry<"blog"> | CollectionEntry<"university">
+  );
   return new Response(new Uint8Array(buffer), {
     headers: { "Content-Type": "image/png" },
   });
