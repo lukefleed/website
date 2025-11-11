@@ -750,3 +750,4 @@ As $n$ increases beyond $150,000$, the matrix-vector product time dominates. The
 Well, that's it. If you want to have a better look at the code or use it, it's all open source:
 
 * [Github Repository](https://github.com/lukefleed/two-pass-lanczos)
+* [LaTeX Report](https://github.com/lukefleed/two-pass-lanczos/blob/main/report/report.pdf)
