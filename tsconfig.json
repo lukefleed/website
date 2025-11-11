@@ -1,11 +1,22 @@
 {
   "extends": "astro/tsconfigs/strict",
-  "include": [".astro/types.d.ts", "**/*"],
-  "exclude": ["dist", "public/pagefind"],
+  "include": [
+    ".astro/types.d.ts",
+    "**/*"
+  ],
+  "exclude": [
+    "dist",
+    "public/pagefind"
+  ],
   "compilerOptions": {
+    // ensure module format supports `import.meta` even if `astro/tsconfigs/strict`
+    // cannot be resolved by the TypeScript server for any reason
+    "module": "es2022",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": [
+        "./src/*"
+      ]
     },
     "jsx": "react-jsx",
     "jsxImportSource": "react"
