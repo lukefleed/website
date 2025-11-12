@@ -19,6 +19,9 @@ In this post, we will explore one of the most straightforward solutions to this 
 - All code is available on GitHub: [two-pass-lanczos](https://github.com/lukefleed/two-pass-lanczos)
 - The full technical report with proofs and additional experiments: [report.pdf](https://github.com/lukefleed/two-pass-lanczos/raw/master/tex/report.pdf)
 
+You can discuss this post on [Hacker News](https://news.ycombinator.com/item?id=45889891), [Lobsters](https://lobste.rs/s/sag4i3/cache_friendly_low_memory_lanczos) and [Reddit](https://www.reddit.com/r/rust/comments/1ouf5hp/cachefriendly_lowmemory_lanczos_algorithm_in_rust/).
+
+
 ---
 
 ## Table of Contents
