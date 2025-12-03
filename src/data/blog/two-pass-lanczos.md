@@ -8,7 +8,7 @@ draft: false
 tags:
   - Rust
   - Scientific Computing
-description: Implementing a cache-friendly, low-memory two-pass Lanczos algorithm in Rust, focusing on efficient memory access patterns and minimal allocations.
+description: How a bit of algorithm engineering and low-level details can alter what seems like a straightforward trade-off on a blackboard.
 ---
 
 
