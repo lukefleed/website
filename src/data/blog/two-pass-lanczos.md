@@ -17,7 +17,7 @@ The standard Lanczos method for computing matrix functions has a brutal memory r
 In this post, we will explore one of the most straightforward solutions to this problem: a two-pass variant of the Lanczos algorithm that only requires $O(n)$ memory at the cost of doubling the number of matrix-vector products. The surprising part is that when implemented carefully, the two-pass version isn't just memory-efficient—it can be faster for certain problems. We will dig into why.
 
 - All code is available on GitHub: [two-pass-lanczos](https://github.com/lukefleed/two-pass-lanczos)
-- The full technical report with proofs and additional experiments: [report.pdf](https://github.com/lukefleed/two-pass-lanczos/raw/master/tex/report.pdf)
+- A more complete report, with references and more experiments: [report.pdf](https://github.com/lukefleed/two-pass-lanczos/raw/master/tex/report.pdf)
 
 You can discuss this post on [Hacker News](https://news.ycombinator.com/item?id=45889891), [Lobsters](https://lobste.rs/s/sag4i3/cache_friendly_low_memory_lanczos) and [Reddit](https://www.reddit.com/r/rust/comments/1ouf5hp/cachefriendly_lowmemory_lanczos_algorithm_in_rust/).
 
