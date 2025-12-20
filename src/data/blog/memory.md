@@ -11,6 +11,8 @@ tags:
 description: "From hardware to aliasing rules: understanding how C, C++, and Rust map types to memory."
 ---
 
+This article is the first part of a series exploring how C, C++, and Rust manage memory at a low level. We will start from the hardware perspective: how memory is represented as bytes, and then build up to how each language maps types onto that memory, the rules they impose, and the implications for ownership and safety.
+
 ## Table of contents
 
 ## Memory Is Just Bytes
