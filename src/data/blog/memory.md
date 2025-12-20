@@ -1,15 +1,17 @@
 ---
 author: Luca Lombardo
-pubDatetime: 2025-12-20T00:00:00Z
-title: Who Owns the Memory?
-slug: who-owns-the-memory
+pubDatetime: 2025-12-20T00:00:00.000Z
+title: "Who Owns the Memory? Part 1: Objects"
+slug: who-owns-the-memory-pt1
 featured: false
 draft: true
 tags:
   - Rust
   - Programming
-description: A comparative study of memory management in Rust, C and C++.
+description: "From hardware to aliasing rules: understanding how C, C++, and Rust map types to memory."
 ---
+
+## Table of contents
 
 ## Memory Is Just Bytes
 
@@ -188,9 +190,9 @@ The effective type machinery exists purely for optimization. The compiler uses i
 
 ### C++: Object Lifetime
 
-C++ inherits C's memory model but layers a more elaborate object model on top. Where C speaks of effective types, C++ speaks of *object lifetime*.
+C++ inherits C's effective type rules but adds a distinct concept: *object lifetime*. An object's lifetime is the interval during which accessing the object is well-defined.
 
-The C++ standard (N4950, §6.7.3) defines precisely when an object's lifetime begins and ends. For an object of type `T`:
+The C++ standard (N4950, §6.7.3) specifies the boundaries precisely. For an object of type `T`:
 
 > The lifetime of an object of type T begins when:
 > (1.1) storage with the proper alignment and size for type T is obtained, and
@@ -201,7 +203,7 @@ The C++ standard (N4950, §6.7.3) defines precisely when an object's lifetime be
 > (1.4) if T is a class type, the destructor call starts, or
 > (1.5) the storage which the object occupies is released, or is reused by an object that is not nested within o.
 
-This is more nuanced than C's model. Consider:
+Consider placement new:
 
 ```cpp
 struct Widget {
@@ -216,29 +218,29 @@ w->~Widget();                          // lifetime ends here
 // buffer still contains bytes, but no Widget object exists
 ```
 
-Between placement new and the destructor call, a `Widget` object exists at that address. Before placement new and after the destructor, the bytes exist but no `Widget` does. Accessing `w->value` after `w->~Widget()` is undefined behavior, even though the bytes are still there.
+Between placement new and the destructor call, a `Widget` object exists at that address. Before placement new and after the destructor, the bytes exist but no `Widget` does. Accessing `w->value` after `w->~Widget()` is undefined behavior, even though the bytes are still there and unchanged.
 
-This matters for type-based alias analysis. The C++ standard permits compilers to assume that objects of incompatible types do not alias, just as in C. But C++ adds the temporal dimension: accessing an object outside its lifetime is also undefined.
+The destructor call does not free memory. It ends the object's lifetime while the storage remains intact. This is what placement new and explicit destructor calls rely on: the ability to construct an object in pre-existing storage, use it, destroy it, and potentially construct a different object in the same storage.
 
-For trivial types (those without constructors, destructors, or virtual functions), C++ objects behave essentially like C objects. But for class types with nontrivial special member functions, the lifetime model is essential. The destructor call does not free memory. It ends the object's lifetime while leaving the storage intact. This separation between storage and lifetime is what enables placement new and explicit destructor calls.
+For trivial types (those without constructors, destructors, or virtual functions), C++ objects behave essentially like C objects. For class types with nontrivial special member functions, the lifetime boundaries become significant. A `std::string` accessed after destruction will likely read freed memory or corrupted pointers, because the destructor deallocated the internal buffer.
 
-C++11 also introduced *implicit object creation*. Certain operations (like `std::malloc`, or writing to an array of `unsigned char`) implicitly create objects of *implicit-lifetime types* if doing so would give the program defined behavior:
+C++20 also introduced *implicit object creation*. Certain operations, such as `std::malloc`, implicitly create objects of *implicit-lifetime types* if doing so would give the program defined behavior:
 
 ```cpp
-struct Point { int x, y; };  // implicit-lifetime type
+struct Point { int x, y; };  // implicit-lifetime type (trivial)
 
 Point* p = (Point*)std::malloc(sizeof(Point));
 p->x = 1;  // in C++20, this is well-defined
 p->y = 2;  // malloc implicitly created the Point object
 ```
 
-This was added to retroactively bless code patterns that had been common but technically undefined. The standard now says that `malloc` implicitly creates an object of the appropriate type if that would make the program have defined behavior.
+This was added to retroactively make well-defined the code patterns that had been common but technically undefined.
 
 ### Rust: Validity Invariants
 
-Rust takes a stricter position. Types carry *validity invariants*, and producing a value that violates its type's invariant is immediate undefined behavior. This is not merely an optimization hint. It is a semantic requirement that the compiler assumes always holds.
+Rust imposes a stronger requirement. Every type has *validity invariants*, and producing a value that violates its type's invariant is immediate undefined behavior. The compiler's optimizer assumes these invariants hold unconditionally.
 
-The Rust Reference enumerates the validity requirements:
+The Rust Reference defines validity per type:
 
 ```rust
 // A bool must be 0x00 (false) or 0x01 (true)
@@ -258,11 +260,11 @@ let s: Status = unsafe { std::mem::transmute(2u8) };  // UB: invalid discriminan
 let n: ! = unsafe { std::mem::zeroed() };  // UB
 ```
 
-The moment an invalid value is *produced*, undefined behavior has occurred. The Rust Reference states:
+The moment an invalid value is *produced*, undefined behavior has occurred. From the Rust Reference:
 
 > The Rust compiler assumes that all values produced during program execution are valid, and producing an invalid value is hence immediate UB.
 
-This is more aggressive than C or C++. In C, you can have an `int` variable containing any 32-bit pattern, including trap representations on exotic platforms, and as long as you do not read it, no UB occurs. In Rust, if a `bool` contains the bit pattern `0x02`, UB has already happened at the point of creation, regardless of whether you subsequently read it.
+In C, you can have an `int` variable containing any 32-bit pattern, and as long as you do not read it in certain ways, no UB occurs. In Rust, if a `bool` contains the bit pattern `0x02`, UB has already happened at the point of creation, regardless of whether you subsequently read it.
 
 Consider references. In C and C++, a pointer can be null, and dereferencing it is UB. But the pointer itself can exist and be passed around. In Rust:
 
@@ -271,17 +273,15 @@ let ptr: *const i32 = std::ptr::null();  // valid: raw pointer can be null
 let r: &i32 = unsafe { &*ptr };          // UB occurs HERE, at reference creation
 ```
 
-The UB does not occur when we try to read through the reference. It occurs when the reference is created. A `&T` type has an invariant: it must be non-null, properly aligned, and point to a valid `T`. Violating this invariant at any point is UB, regardless of what we do with the reference afterward.
+The UB does not occur when we read through the reference. It occurs when the reference is created. A `&T` carries an invariant: non-null, properly aligned, pointing to a valid `T`. Violating this invariant at any point is UB, regardless of what we do with the reference afterward.
 
-This strict approach enables more aggressive optimization. When the compiler sees a `&T`, it can assume the reference is valid for the duration of its use. It can emit `dereferenceable` and `nonnull` annotations to LLVM, enabling optimizations that would be unsound if null references could exist.
+This strictness enables more aggressive optimization. When the compiler sees a `&T`, it emits `dereferenceable` and `nonnull` annotations to LLVM. A match expression on a `bool` need not generate a default case for values 2-255. These optimizations would be unsound if invalid values could exist.
 
-The trade-off is that more operations require `unsafe`. You cannot create a reference to potentially-invalid memory, even temporarily. You must use raw pointers for such cases, and only convert to references when you can guarantee validity:
+The cost is that more operations require `unsafe`. You cannot create a reference to potentially-invalid memory, even temporarily. You must use raw pointers and convert to references only when validity is guaranteed:
 
 ```rust
-// Working with potentially-invalid memory
 let ptr: *const i32 = some_ffi_function();
 
-// Check validity before creating reference
 if !ptr.is_null() && ptr.is_aligned() {
     let r: &i32 = unsafe { &*ptr };  // sound: we verified validity
     println!("{}", *r);
@@ -318,19 +318,234 @@ let b: bool = unsafe { std::mem::transmute(bytes) };  // UB: 2 is not a valid bo
 
 The asymmetry here mirrors C's effective type asymmetry. Converting a typed value to bytes is generally safe. Converting bytes to a typed value requires that the bytes actually constitute a valid value of that type.
 
-### Why This Matters
 
-These rules determine what the compiler can assume, and therefore what optimizations are valid.
+## Storage Duration
 
-When C's strict aliasing allows the compiler to assume `int*` and `float*` do not alias, it can keep the int in a register across a write through the float pointer. This makes code faster but requires programmers to respect type boundaries.
+Every object resides somewhere in memory. The *storage duration* of an object determines when that memory is allocated and when it becomes invalid. All three languages recognize the same fundamental categories, though they use different terminology and provide different guarantees about deallocation.
 
-When C++'s lifetime rules guarantee that an object cannot be accessed outside its lifetime, the compiler can elide redundant initializations and reuse storage more aggressively. But it requires programmers to manage lifetime correctly.
+### The Four Categories
 
-When Rust's validity invariants guarantee that every `bool` is 0 or 1, the compiler can use that bit pattern assumption in code generation. A match expression on a `bool` need not generate a default case for values other than `true` and `false`. But it requires that unsafe code never produce invalid values.
+C defines four storage durations. C++ inherits the same four. Rust maps onto an equivalent model, though the language specification does not use identical terminology.
 
-The progression is one of increasing commitment. C says: *these bytes have a type, access them correctly.* C++ adds: *this object exists during this window, do not touch it outside.* Rust adds: *this value is valid, it must satisfy its type's invariants at all times.*
+**Static storage duration**: The object exists for the entire execution of the program. In C and C++, this includes global variables, variables declared with `static`, and string literals. In Rust, this includes `static` items and string literals (which have type `&'static str`). The memory for these objects is typically placed in the `.data` or `.rodata` segment of the executable and requires no runtime allocation.
 
-Each layer shifts responsibility. C trusts the programmer entirely. C++ automates some lifetime management through RAII but trusts programmers with placement new and explicit destruction. Rust verifies aliasing and lifetime at compile time, leaving only validity invariants to unsafe code.
+**Thread storage duration**: The object exists for the lifetime of a thread. C11 introduced `_Thread_local` (spelled `thread_local` since C23), C++11 introduced `thread_local`, and Rust provides `thread_local!` macro. Each thread gets its own instance of the variable, allocated when the thread starts and deallocated when it terminates.
 
-The next section examines where these objects live: storage duration and the distinction between stack, heap, and static allocation.
-Pronto per la sezione 3?
+**Automatic storage duration**: The object exists within a lexical scope, typically a function body or block. When execution enters the scope, space is reserved; when execution leaves, the space is released. In C and C++, local variables without `static` or `thread_local` have automatic storage. In Rust, all local bindings have automatic storage. This is typically implemented via the stack.
+
+**Allocated (dynamic) storage duration**: The object's lifetime is controlled explicitly by the program. In C, this means `malloc`/`free`. In C++, this means `new`/`delete` or allocator-aware containers. In Rust, this means `Box`, `Vec`, `String`, and other heap-allocating types.
+
+### Stack
+
+Automatic storage is almost universally implemented using a call stack. When a function is called, the compiler reserves space for its local variables by adjusting the stack pointer. On x86-64 following the System V ABI, this looks like:
+
+```asm
+my_function:
+    push rbp
+    mov rbp, rsp
+    sub rsp, 48          ; reserve 48 bytes for locals
+    ; ... function body ...
+    mov rsp, rbp
+    pop rbp
+    ret
+```
+
+The `sub rsp, 48` instruction allocates space for all local variables in a single operation. The compiler computes the required size at compile time by summing the sizes of all locals (accounting for alignment). Deallocation is equally cheap: `mov rsp, rbp` releases all that space instantly.
+
+This has two consequences:
+
+1. Allocation and deallocation of automatic storage is $O(1)$ regardless of how many objects are involved. A function with 100 local variables pays the same cost as one with 2.
+
+2. The space is not initialized. After `sub rsp, 48`, those 48 bytes contain whatever was previously on the stack. In C, reading an uninitialized automatic variable is undefined behavior (the value is *indeterminate*). In C++, the same rule applies. In Rust, the compiler enforces definite initialization: you cannot read a variable before assigning to it.
+
+```rust
+fn example() {
+    let x: i32;
+    println!("{}", x);  // error: borrow of possibly-uninitialized variable
+}
+```
+
+The Rust compiler tracks initialization state through control flow and rejects programs that might read uninitialized memory. This is a compile-time check with no runtime cost.
+
+### Heap
+
+Dynamic allocation is fundamentally different. When we call `malloc(n)`, the allocator must:
+
+1. Find a contiguous region of at least `n` bytes that is not currently in use
+2. Mark that region as allocated
+3. Return a pointer to it
+
+When we call `free(p)`, the allocator must:
+
+1. Determine the size of the allocation (stored in metadata adjacent to the user data)
+2. Mark that region as available for future allocations
+3. Possibly coalesce adjacent free regions to reduce fragmentation
+
+This involves data structure manipulation, potential system calls (if the allocator needs more memory from the OS), and can have variable latency depending on heap state. The cost is not $O(1)$.
+
+In C, heap allocation is explicit:
+
+```c
+int* p = malloc(sizeof(int) * 100);
+if (p == NULL) {
+    // allocation failed
+}
+// ... use p ...
+free(p);
+```
+
+The programmer is responsible for:
+1. Checking for allocation failure
+2. Calling `free` exactly once
+3. Not using the pointer after `free`
+4. Not freeing the same pointer twice
+
+Violating any of these causes undefined behavior or memory leaks. The language provides no assistance.
+
+In C++, dynamic allocation can be explicit (`new`/`delete`) or managed through RAII:
+
+```cpp
+// Explicit (dangerous)
+int* p = new int[100];
+delete[] p;
+
+// RAII (safer)
+auto v = std::make_unique<int[]>(100);
+// v automatically deleted when it goes out of scope
+```
+
+`std::unique_ptr` wraps a raw pointer and calls `delete` in its destructor. When `v` goes out of scope, the destructor runs, the memory is freed. The programmer does not call `delete` manually.
+
+This is opt-in. You can still use raw `new`/`delete`. You can still have dangling pointers. The compiler does not verify correctness.
+
+In Rust, heap allocation is handled through owning types:
+
+```rust
+let v: Vec<i32> = Vec::with_capacity(100);
+// v automatically deallocated when it goes out of scope
+```
+
+`Vec<T>` owns heap-allocated memory. When `v` goes out of scope, `Vec`'s `Drop` implementation runs, calling the allocator to free the buffer. There is no way to forget to free, no way to double-free, and no way to use after free (the compiler rejects such programs).
+
+The difference from C++ is that Rust's ownership is not opt-in. Every heap allocation is owned by exactly one binding. Transferring ownership is a move. After a move, the original binding is unusable:
+
+```rust
+let v1 = vec![1, 2, 3];
+let v2 = v1;           // v1 moved to v2
+println!("{:?}", v1);  // error: borrow of moved value
+```
+
+### Who Calls Free?
+
+The central difference between C, C++, and Rust in their treatment of dynamic storage is responsibility for deallocation.
+
+In C, the programmer decides when to call `free`. The language does not track ownership. If you pass a pointer to a function, the function might free it, or it might not. The only way to know is documentation or convention.
+
+```c
+void process(int* data) {
+    // Does this function free data? You have to read the docs.
+}
+```
+
+In C++, RAII shifts responsibility to destructors. If you use `unique_ptr`, the destructor frees. If you use `shared_ptr`, the destructor decrements a reference count and frees when it reaches zero. But you can still use raw pointers, and the compiler cannot tell you which convention a given codebase follows.
+
+```cpp
+void process(int* data) {
+    // Raw pointer: who owns this? Still ambiguous.
+}
+
+void process(std::unique_ptr<int[]> data) {
+    // Ownership transferred: this function will free when done.
+}
+```
+
+In Rust, the type system encodes ownership:
+
+```rust
+fn process(data: Vec<i32>) {
+    // This function owns data. It will be freed when process returns.
+}
+
+fn process_ref(data: &Vec<i32>) {
+    // This function borrows data. The caller retains ownership.
+}
+
+fn process_mut(data: &mut Vec<i32>) {
+    // Mutable borrow. Caller retains ownership. No other access allowed during this call.
+}
+```
+
+The signature tells you everything. `Vec<i32>` means ownership transfer. `&Vec<i32>` means immutable borrow. `&mut Vec<i32>` means mutable borrow. The compiler enforces these semantics. You cannot pass a `Vec` and then continue using it; the move would be rejected.
+
+### Stack Allocation in Rust
+
+Rust provides fine-grained control over whether data lives on the stack or heap. By default, local bindings are stack-allocated:
+
+```rust
+let x: [i32; 1000] = [0; 1000];  // 4000 bytes on the stack
+```
+
+This works until the array is too large for the stack (typically 1-8 MB depending on platform). For large allocations, use `Box`:
+
+```rust
+let x: Box<[i32; 1000000]> = Box::new([0; 1000000]);  // heap
+```
+
+`Box<T>` is a pointer to a heap allocation. It has the same size as a raw pointer (8 bytes on 64-bit), implements `Deref` so you can use it like a reference, and frees the allocation in its `Drop` implementation.
+
+The memory layout of `Box<T>` is a single pointer:
+
+```rust
+use std::mem::size_of;
+assert_eq!(size_of::<Box<[i32; 1000]>>(), 8);  // just a pointer
+```
+
+Unlike C++ `unique_ptr`, which may carry a deleter, `Box<T>` always uses the global allocator and has no space overhead. The deallocation function is known statically.
+
+### How Does Vec Work?
+
+`Vec<T>` is Rust's growable array. Its memory layout is three machine words:
+
+```rust
+// Conceptually:
+struct Vec<T> {
+    ptr: *mut T,      // pointer to heap allocation
+    cap: usize,       // allocated capacity
+    len: usize,       // number of initialized elements
+}
+```
+
+On 64-bit, `size_of::<Vec<T>>()` is 24 bytes regardless of `T`.
+
+When you create a `Vec`:
+
+```rust
+let mut v = Vec::with_capacity(10);
+```
+
+The allocator provides a buffer for 10 elements. `ptr` points to it, `cap` is 10, `len` is 0.
+
+When you push elements:
+
+```rust
+v.push(1);  // len becomes 1
+v.push(2);  // len becomes 2
+```
+
+Each `push` writes to `ptr.add(len)` and increments `len`. No reallocation occurs while `len < cap`.
+
+When `len` reaches `cap` and you push again, `Vec` must reallocate:
+
+1. Allocate a new buffer with larger capacity
+2. Copy existing elements to the new buffer
+3. Free the old buffer
+4. Update `ptr` and `cap`
+
+When `Vec` is dropped:
+
+1. Call `drop` on each element (for types with destructors)
+2. Free the buffer
+
+All of this happens automatically. The programmer writes `v.push(x)` and the ownership system ensures the buffer is freed exactly once, when `v` goes out of scope.
+
+This is the pattern throughout Rust's standard library. `String` owns a UTF-8 buffer. `HashMap` owns its backing storage. `File` owns a file descriptor. When the owner goes out of scope, the resource is released. The type system ensures there is always exactly one owner.
