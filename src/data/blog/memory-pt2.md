@@ -545,7 +545,7 @@ The correct design principle is that unsafe code cannot rely on destructors runn
 
 ### The Single-Destructor Problem 
 
-The RAII model we have described, whether in C++ or Rust, shares a fundamental structural limitation: the destructor is a single, parameterless function that returns nothing. When an object goes out of scope, exactly one action occurs. We cannot choose between alternatives. We cannot pass runtime information to the cleanup logic. We cannot receive a result from it.
+The RAII model we have described, whether in C++ or Rust, shares the same structural limitation: the destructor is a single, parameterless function that returns nothing. When an object goes out of scope, exactly one action occurs. We cannot choose between alternatives. We cannot pass runtime information to the cleanup logic. We cannot receive a result from it.
 
 For many resources this constraint is invisible. A file handle has one sensible cleanup action: close the descriptor. A heap allocation has one cleanup action: free the memory. A mutex guard has one cleanup action: unlock the mutex. The destructor does the obvious thing, and the single-destructor model works well.
 
@@ -576,7 +576,7 @@ private:
 };
 ```
 
-The intent is clear: call `commit()` when the transaction succeeds, let the destructor rollback on error paths or early returns. Exception safety falls out naturally; if an exception propagates, the destructor runs, and uncommitted transactions rollback.
+The idea that we call `commit()` when the transaction succeeds, let the destructor rollback on error paths or early returns. Exception safety falls out naturally; if an exception propagates, the destructor runs, and uncommitted transactions rollback.
 
 The problem is that forgetting to call `commit()` is not a compile-time error. If we write a function that successfully completes its work but neglects to call `commit()`, the destructor happily rolls back. The program is wrong, but the compiler cannot tell us. We have traded one category of bug (forgetting to cleanup) for another (forgetting to finalize). The second category is arguably more insidious because the cleanup happens, silently doing the wrong thing.
 
@@ -652,7 +652,7 @@ But defer has an advantage in simplicity. We do not need to define a type, imple
 
 #### Linear Types
 
-The transaction problem reveals a gap in the type system's guarantees. RAII ensures that cleanup happens, but not that we made an explicit decision about which cleanup to perform. The destructor chooses for us, silently.
+This transaction shows us a gap in the type system's guarantees. RAII ensures that cleanup happens, but not that we made an explicit decision about which cleanup to perform. The destructor chooses for us, silently.
 
 Linear types close this gap. A linear type must be explicitly consumed; it cannot simply go out of scope. If we try to let a linear value fall out of scope without passing it to a consuming function, the compiler rejects the program.
 
