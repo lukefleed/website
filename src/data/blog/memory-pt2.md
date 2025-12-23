@@ -543,7 +543,8 @@ The guard's lifetime tied it to the borrowed data. When the guard dropped, it jo
 
 The correct design principle is that unsafe code cannot rely on destructors running to maintain safety invariants. Safe abstractions must account for the possibility that destructors are skipped. The standard library's `Vec::drain` is a good example. Draining a vector moves elements out one at a time. If the drain iterator is forgotten mid-iteration, some elements have been moved out and the vector's length is wrong. Rather than leaving the vector in an inconsistent state, `Drain` sets the vector's length to zero at the start of iteration. If `Drain` is forgotten, the remaining elements leak (their destructors do not run, their memory is not reused), but the vector is in a valid state (empty). Leaks amplify leaks, but undefined behavior does not occur.
 
-### The Single-Destructor Problem 
+### The Single-Destructor Problem
+
 
 The RAII model we have described, whether in C++ or Rust, shares the same structural limitation: the destructor is a single, parameterless function that returns nothing. When an object goes out of scope, exactly one action occurs. We cannot choose between alternatives. We cannot pass runtime information to the cleanup logic. We cannot receive a result from it.
 
@@ -703,3 +704,388 @@ Linear types would break this assumption. If a value must be explicitly consumed
 One could imagine solutions: a separate `on_panic` handler for linear types, or restricting linear types to no_unwind contexts, or transforming panics into error returns that the programmer must handle. These are all possible, but they represent significant complexity and would require changes throughout the ecosystem. The standard library's `Vec::pop` returns an `Option<T>`, assuming it can drop the popped element if the caller ignores the return value. With linear types in `T`, this interface would be unsound. Every generic container, every iterator adapter, every function that might discard a value would need to be reconsidered.
 
 Rust chose affine types, accepting that the compiler cannot enforce explicit consumption but gaining a simpler model where any value can be dropped. The `#[must_use]` attribute provides a weaker form of the linear guarantee: a warning (not an error) if a value is unused. It catches some mistakes but does not provide the hard guarantee that linear types would.
+
+## Move Semantics
+
+All this discussion about ownership assumes that ownership can be transferred efficiently. When we say a value "moves" from one binding to another, what actually happens to the bytes? And why is this operation preferable to copying?
+
+The answer varies dramatically across C, C++, and Rust, and the differences expose fundamental assumptions each language makes about values, identity, and resources.
+
+### The Cost of Copies
+
+Consider what happens when we pass a value to a function. In the simplest model, the caller's value is copied into the callee's parameter. For a 32-bit integer, this means copying 4 bytes, negligible. But what about a dynamically-sized container?
+
+A `std::vector<int>` in C++ or a `Vec<i32>` in Rust has a particular structure: a pointer to heap-allocated storage, a length, and a capacity. The struct itself is small (typically 24 bytes on 64-bit systems), but it can own a large heap allocation.
+
+```cpp
+struct Vec {
+    int* data;     // 8 bytes
+    size_t len;    // 8 bytes  
+    size_t cap;    // 8 bytes
+};
+// sizeof(Vec) == 24, but data might point to way more memory
+```
+
+If we copy this struct byte-for-byte, we produce two `Vec` instances pointing to the same heap allocation. This is a shallow copy. It creates a problem: both instances believe they own the memory. When one destructor frees it, the other's pointer dangles. When the second destructor runs, it double-frees.
+
+The alternative is a deep copy: allocate new heap storage, copy all data, and update the new struct's pointer. This is correct but expensive. Copying takes time. More importantly, it allocates memory, which involves a system call (or at minimum, allocator bookkeeping) and pollutes the cache with data we may never touch again.
+
+The overhead becomes prohibitive when values pass through function boundaries repeatedly. A function that takes a `vector` by value, processes it, and returns a new `vector` might copy millions of bytes twice—once on entry, once on return. In performance-sensitive code, we wanto to avoid passing large objects by value entirely, preferring pointers or references. But this complicates APIs and obscures ownership.
+.
+
+### The Shallow Copy Escape
+
+We can observe however that when we pass a vector to a function that consumes it, the caller no longer needs its copy. The bytes in the caller's stack frame become dead immediately after the call. If we could somehow *transfer* ownership without physically duplicating the heap data, we would get the clarity of value semantics with the efficiency of pointer passing.
+
+This is exactly what move semantics provide. Instead of copying the entire data structure, we copy only the struct (the pointer, length, and capacity), then invalidate the source somehow so it does not attempt cleanup.
+
+The _somehow_ is where languages diverge.
+
+In C, there is no language-level support. We must implement this manually:
+
+```c
+typedef struct {
+    int* data;
+    size_t len;
+    size_t cap;
+} Vec;
+
+void transfer(Vec* dest, Vec* src) {
+    *dest = *src;           // shallow copy the struct
+    src->data = NULL;       // invalidate source
+    src->len = 0;
+    src->cap = 0;
+}
+```
+
+After `transfer`, the destination owns the heap memory, and the source is in a _moved-from_ state (nulled pointers, zero sizes). This works, but nothing enforces it. We can still access `src->data` after the transfer. However, we would read NULL, or worse, the invalidation was forgotten and we would read a pointer that someone else will free.
+
+### C++11: Rvalue References and Move Semantics
+
+Before C++11, the language had one kind of reference: the lvalue reference, written `T&`. An lvalue is roughly "something with a name and an address", a variable, a dereferenced pointer, an array element. Lvalue references bind to lvalues and provide aliased access to existing objects.
+
+But consider a temporary:
+
+```cpp
+std::vector<int> make_vector() {
+    return std::vector<int>{1, 2, 3, 4, 5};
+}
+
+void consume(std::vector<int> v);
+
+consume(make_vector());  // the argument is a temporary
+```
+
+The return value of `make_vector()` is not an lvalue, it has no name, no persistent storage, no address we can take. It is an rvalue, a temporary that will be destroyed at the end of the full expression. Before C++11, passing this temporary to `consume` meant copying it, even though the original was about to disappear. We duplicated data that would be destroyed moments later.
+
+C++11 introduced rvalue references, written `T&&`. An rvalue reference binds to rvalues; temporaries, expressions, values returned by functions. The type system now distinguishes "I want to observe this object" (`const T&`) from "I want to steal from this object" (`T&&`).
+
+This distinction enables overloading. A class can define two versions of a constructor:
+
+```cpp
+class vector {
+public:
+    // Copy constructor: source is const lvalue reference
+    vector(const vector& other) {
+        data_ = new int[other.cap_];
+        std::copy(other.data_, other.data_ + other.len_, data_);
+        len_ = other.len_;
+        cap_ = other.cap_;
+    }
+    
+    // Move constructor: source is rvalue reference
+    vector(vector&& other) noexcept {
+        data_ = other.data_;
+        len_ = other.len_;
+        cap_ = other.cap_;
+        // Invalidate source
+        other.data_ = nullptr;
+        other.len_ = 0;
+        other.cap_ = 0;
+    }
+};
+```
+
+When the argument is an rvalue (a temporary, or the result of `std::move`), overload resolution selects the move constructor. We perform the shallow copy and invalidate the source, exactly as in the C version, but now the selection happens automatically based on value category.
+
+The key insight is that `std::move` does not move anything. It is a cast:
+
+```cpp
+template<typename T>
+constexpr std::remove_reference_t<T>&& move(T&& t) noexcept {
+    return static_cast<std::remove_reference_t<T>&&>(t);
+}
+```
+
+It takes a reference (of any kind, due to reference collapsing) and returns an rvalue reference to the same object. The object does not move. We simply change how the type system categorizes it.
+
+This cast enables us to move from named variables:
+
+```cpp
+std::vector<int> v1{1, 2, 3};
+std::vector<int> v2 = std::move(v1);  // v1 cast to rvalue, move constructor called
+```
+
+After this line, `v2` owns the heap allocation that `v1` previously owned. `v1` is in a moved-from state: its data pointer is null, its length and capacity are zero. The destructor will run when `v1` goes out of scope, but it will do nothing because there is nothing to free.
+
+#### The Implicitly-Declared Move Constructor
+
+The compiler can generate move constructors automatically. If a class has no user-declared copy constructor, copy assignment operator, move assignment operator, or destructor, the compiler declares an implicit move constructor. This implicit version performs member-wise move: for each non-static data member, it moves that member using the member's own move constructor (or copies it, for types without move constructors).
+
+```cpp
+struct Wrapper {
+    std::vector<int> data;
+    std::string name;
+    int id;
+    // implicit move constructor:
+    // Wrapper(Wrapper&& other) noexcept
+    //     : data(std::move(other.data))
+    //     , name(std::move(other.name))
+    //     , id(other.id) {}  // int is trivially movable (just copied)
+};
+```
+
+For trivially movable types (essentially, types compatible with C), the move constructor copies the object representation as if by `std::memmove`. No per-member move occurs at runtime; the operation reduces to a memory copy of the struct's bytes.
+
+The rule about user-declared special member functions is important. If we declare a destructor (even a defaulted one), the implicit move constructor is not generated:
+
+```cpp
+struct C {
+    std::vector<int> data;
+    ~C() {}  // destructor declared, even though empty
+};
+
+C c1;
+C c2 = std::move(c1);  // calls copy constructor, not move!
+```
+
+This behavior exists because a user-declared destructor suggests the class manages resources in ways the compiler cannot infer. The conservative choice is to fall back to copying. We can force generation of the move constructor with `= default`:
+
+```cpp
+struct D {
+    std::vector<int> data;
+    ~D() {}
+    D(D&&) = default;  // explicitly request move constructor
+};
+```
+
+#### Move Assignment
+
+The same pattern applies to assignment. The move assignment operator takes an rvalue reference and transfers ownership:
+
+```cpp
+vector& operator=(vector&& other) noexcept {
+    if (this != &other) {
+        delete[] data_;        // free our current storage
+        data_ = other.data_;
+        len_ = other.len_;
+        cap_ = other.cap_;
+        other.data_ = nullptr;
+        other.len_ = 0;
+        other.cap_ = 0;
+    }
+    return *this;
+}
+```
+
+The self-assignment check is necessary because `std::move` can be applied to any lvalue, including the left-hand side of the assignment itself (though this would be perverse).
+
+The destructor of the moved-from object still runs. Move semantics transfer ownership of *resources*, but the source object continues to exist until its scope ends. The moved-from state must be valid enough for the destructor to execute safely. For `vector`, that means null pointer and zero lengths,the destructor checks for null before freeing, or simply has no work to do.
+
+The `noexcept` specification on move constructors matters for optimization. `std::vector` needs to relocate elements when it grows. If the element type's move constructor is `noexcept`, the vector can move elements to the new buffer. If it might throw, the vector must copy instead to preserve the strong exception guarantee—if an exception occurs during relocation, the original vector must remain intact. The difference can be dramatic for vectors of vectors.
+
+#### Value Categories in Depth
+
+C++11 refined the notion of value categories beyond the simple lvalue/rvalue split. We have three categories: 
+
+* An **lvalue** designates an object with identity that persists beyond a single expression. Variables, function returns by reference, dereferenced pointers. The address can be taken.
+
+* A **prvalue** (pure rvalue) is a temporary with no identity. Literals, function returns by value (before binding), results of arithmetic expressions. These initialize objects or compute values, but have no persistent address.
+
+* An **xvalue** (expiring value) has identity but can be moved from. The result of `std::move()`, the result of a cast to rvalue reference, the return value of a function returning `T&&`. The object exists, has an address, but we have permission to transfer its resources.
+
+Overload resolution uses these categories:
+
+```cpp
+void f(Widget& w);        // lvalue reference overload
+void f(const Widget& w);  // const lvalue reference overload  
+void f(Widget&& w);       // rvalue reference overload
+
+Widget w;
+const Widget cw;
+f(w);                // calls f(Widget&)
+f(cw);               // calls f(const Widget&)
+f(Widget{});         // calls f(Widget&&) - prvalue
+f(std::move(w));     // calls f(Widget&&) - xvalue
+```
+
+When both `const T&` and `T&&` overloads exist, rvalues (prvalues and xvalues) prefer the `T&&` overload. Lvalues can only bind to the lvalue reference overloads. If only `const T&` is provided, it accepts everything—rvalues bind to const lvalue references, which is why copying was the fallback before C++11.
+
+This machinery operates entirely at compile time. By the time we reach machine code, there are no value categories, no rvalue references, just addresses and data. The type system's job was to select the right constructor or operator; having done so, the generated code performs the memory operations we specified.
+
+<!-- ### The Moved-From Problem
+
+The move constructor transfers resources from the source object to the destination. But what happens to the source? In C++, the source object continues to exist. Its lifetime does not end at the move. It remains a valid object, occupying the same storage, and its destructor will be called when it goes out of scope.
+
+The C++ standard describes this state as "valid but unspecified." The object is in some state that satisfies its class invariants (so the destructor can run safely), but the exact state is not defined. For `std::string`, the moved-from string might be empty, or it might contain some unspecified characters. For `std::vector`, the moved-from vector might be empty, or it might have some capacity. The standard does not say.
+
+Some types have a fully specified moved-from state. `std::unique_ptr` is defined to be null after a move. We can rely on this:
+
+```cpp
+std::unique_ptr<int> p = std::make_unique<int>(42);
+std::unique_ptr<int> q = std::move(p);
+assert(p == nullptr);  // guaranteed by the standard
+```
+
+But this guarantee is type-specific. For user-defined types, the moved-from state depends on how the move constructor was written. And critically, the compiler does not prevent us from using a moved-from object.
+
+```cpp
+std::vector<int> v = {1, 2, 3};
+std::vector<int> w = std::move(v);
+v.push_back(4);  // compiles and runs
+std::cout << v.size() << "\n";  // prints... something
+```
+
+This code compiles without warning. It runs without crashing. The `push_back` operates on whatever state `v` happens to be in after the move. If the move left `v` empty, we get a vector containing just `4`. If the move left `v` with some residual capacity, we get the same result but perhaps with less reallocation. The behavior is implementation-defined, which is a polite way of saying unpredictable.
+
+The situation is worse for types where the moved-from state is less benign:
+
+```cpp
+class Connection {
+public:
+    Connection(Connection&& other) noexcept
+        : socket_(other.socket_)
+    {
+        other.socket_ = -1;  // sentinel value
+    }
+    
+    void send(const char* data) {
+        if (socket_ == -1) {
+            // what do we do here?
+        }
+        ::send(socket_, data, strlen(data), 0);
+    }
+    
+    ~Connection() {
+        if (socket_ != -1) {
+            ::close(socket_);
+        }
+    }
+
+private:
+    int socket_;
+};
+```
+
+The move constructor sets the source's socket to -1 to prevent double-close. But `send` must now check for this sentinel value. What should it do if called on a moved-from connection? Throw an exception? Return silently? Assert and crash? The type designer must make this decision, document it, and hope that callers read the documentation.
+
+The fundamental problem is that move in C++ is a value transformation, not a lifetime termination. The source object persists. It has a valid address. Its members are accessible. The type system does not distinguish between a moved-from object and a normal object. As far as the compiler is concerned, `v` after `std::move(v)` is still a `std::vector<int>`, fully usable.
+
+This design was intentional. The C++ committee wanted moves to be non-destructive because destructors must run, exception handling requires valid objects during stack unwinding, and backward compatibility demanded that existing code patterns remain valid. The cost is that use-after-move bugs are possible, common, and invisible to the compiler.
+
+Static analyzers can catch some of these bugs. Clang's `-Wuse-after-move` warning detects simple cases:
+
+```cpp
+std::vector<int> v = {1, 2, 3};
+std::vector<int> w = std::move(v);
+v.push_back(4);  // warning: use after move
+```
+
+But the analysis is flow-sensitive and conservative. It cannot track moves through function calls, conditionals, or loops. It misses many real bugs and occasionally produces false positives. The warning is useful but not a substitute for language-level guarantees.
+
+
+### Rust: Moves Without Ghosts
+
+Rust takes a different approach. When a value is moved, the source binding becomes invalid. Not invalid in the sense of holding a sentinel value, but invalid in the sense of not existing. The compiler refuses to generate code that accesses it.
+
+```rust
+let v = vec![1, 2, 3];
+let w = v;
+v.push(4);  // error: borrow of moved value: `v`
+```
+
+This is a compile-time error. The program is rejected before it runs. There is no moved-from state because there is no moved-from object. The binding `v` is simply gone.
+
+How does this work at the machine level? After all, `v` occupied stack space. That space still exists. The bytes that were `v`'s pointer, length, and capacity are still there. What prevents us from reading them?
+
+The answer is that the Rust compiler tracks initialization state as part of its semantic analysis. Every binding has a status: initialized or uninitialized. When we write `let w = v`, the compiler performs a bitwise copy of `v`'s bytes into `w`'s storage, then marks `v` as uninitialized. Any subsequent attempt to use `v` is rejected during compilation.
+
+Consider the generated code for a simple move:
+
+```rust
+fn example() {
+    let v: Vec<i32> = vec![1, 2, 3];
+    let w = v;
+    // v is now uninitialized
+    drop(w);
+}
+```
+
+In the compiled output, the move from `v` to `w` is just a `memcpy` of 24 bytes (the size of `Vec` on 64-bit: pointer, length, capacity). There is no destructor call for `v`. There is no nullification of `v`'s pointer. The bytes that were `v` are simply abandoned. When `w` goes out of scope, `drop` is called on `w`, freeing the heap buffer. The bytes that were `v` are eventually overwritten by subsequent stack usage.
+
+This is cheaper than C++ move semantics. A C++ move constructor typically copies the fields and then nullifies the source's pointer to prevent double-free. Rust's move copies the fields and does nothing else. The "nullification" is handled by the compiler's knowledge that `v` is no longer initialized; no runtime operation is needed.
+
+What about conditional initialization? Rust handles this with drop flags:
+
+```rust
+fn example(condition: bool) {
+    let x;
+    if condition {
+        x = vec![1, 2, 3];
+    }
+    // Is x initialized here?
+}
+```
+
+At the closing brace, should the compiler call `drop` on `x`? It depends on whether the `if` branch executed. When the compiler cannot determine initialization state statically, it inserts a hidden boolean—a drop flag—that tracks whether `x` was initialized. At scope exit, the generated code checks the flag before calling `drop`.
+
+For straight-line code and simple branches, the compiler can often eliminate drop flags through static analysis:
+
+```rust
+let mut x = Box::new(0);    // x is initialized
+let y = x;                  // y is initialized, x is uninitialized
+x = Box::new(1);            // x is reinitialized
+                            // at scope exit: drop y, drop x
+```
+
+The compiler knows the state of every binding at every point in this code. No runtime flags are needed. The optimization is called "static drop semantics," and it applies to the vast majority of real code.
+
+The contrast with C++ is stark. In C++, after `std::move(v)`, we have a zombie object: it exists, it has a type, we can call methods on it, but it is semantically dead. The programmer must remember not to use it. The compiler offers no help (aside from optional warnings that catch only simple cases).
+
+In Rust, after `let w = v`, the binding `v` does not exist. There is no zombie. There is nothing to accidentally use. The compiler has removed `v` from the set of valid names in scope. Attempting to use it is not a warning; it is an error that prevents compilation.
+
+This extends to function calls. When we pass a value to a function that takes ownership, the binding is moved:
+
+```rust
+fn consume(v: Vec<i32>) {
+    // v is owned here
+}
+
+fn main() {
+    let data = vec![1, 2, 3];
+    consume(data);
+    println!("{:?}", data);  // error: borrow of moved value
+}
+```
+
+The signature `fn consume(v: Vec<i32>)` declares that `consume` takes ownership. After the call, `data` is invalid. The compiler enforces this. There is no way to accidentally use `data` after passing it to `consume`.
+
+Compare to C++:
+
+```cpp
+void consume(std::vector<int> v) {
+    // v is a copy or a move, depending on how we called
+}
+
+int main() {
+    std::vector<int> data = {1, 2, 3};
+    consume(std::move(data));
+    std::cout << data.size() << "\n";  // compiles, runs, prints something
+}
+```
+
+The C++ code compiles and runs. The `std::move` casts `data` to an rvalue, allowing the move constructor to be selected. But `data` still exists after the call. It is in its "valid but unspecified" state. The programmer can still access it, and the compiler will not object.
+
+Rust's move semantics eliminate use-after-move bugs at the language level. The bugs cannot exist because the language does not permit the code patterns that would cause them. This is not a lint or a warning or a best practice. It is a hard constraint enforced by the type system.
+
+The cost is that Rust programmers must be explicit about ownership. When a function needs temporary access to a value without taking ownership, it must use a reference: `fn borrow(v: &Vec<i32>)` or `fn mutate(v: &mut Vec<i32>)`. The type signature communicates ownership intent, and the compiler verifies that the caller respects it. This is more verbose than C++'s implicit copies and moves, but it eliminates an entire category of bugs while making ownership relationships explicit in the code. -->
