@@ -13,13 +13,13 @@ description: "From hardware to aliasing rules: understanding how C, C++, and Rus
 
 ## Table of contents
 
+This is the first article in a $n$-part series exploring how C, C++, and Rust manage memory at a low level. We begin where the hardware does: with bytes. From there, we build up to objects, storage duration, lifetime, and aliasing, the vocabulary required to understand ownership. 
+
 ## Memory Is Just Bytes
 
 A 64-bit processor sees memory as a flat array of $2^{64}$ addressable bytes. It does not know what a `struct` is. It does not know what an `int` is. When we execute `mov rax, [rbx]`, the CPU fetches 8 bytes starting at the address in `rbx`, shoves them into `rax`, and moves on. The semantic meaning of those bytes, whether they represent a pointer, a floating-point number, or part of a UTF-8 string, exists only in our source code and the instructions we generate.
 
 The machinery we build atop this substrate, effective types in C, object lifetime in C++, validity invariants in Rust, exists to help compilers reason about what the hardware cannot see. These abstractions enable optimization: if the compiler knows two pointers cannot alias, it keeps values in registers instead of reloading from memory. If it knows a reference is never null, it elides null checks. If it knows an object's lifetime has ended, it reuses the storage.
-
-This is the first article in a $n$-part series exploring how C, C++, and Rust manage memory at a low level. We begin where the hardware does: with bytes. From there, we build up to objects, storage duration, lifetime, and aliasing—the vocabulary required to understand ownership. 
 
 ### Virtual Address Space
 
@@ -27,10 +27,10 @@ Modern operating systems do not give processes direct access to physical RAM. In
 
 This abstraction buys us two properties:
 
-1. **Isolation**: A pointer in process A cannot reference memory in process B. Dereferencing an unmapped address triggers a page fault, typically terminating the process.
+1. **Isolation**: A pointer in process A cannot reference memory in process B. Dereferencing an unmapped address triggers a page fault, typically terminating the process. This is crucial for process-level security, a compromised or buggy process cannot read credentials from our browser or corrupt our kernel's data structures.
 2. **Portability**: Code does not need to know the physical memory topology of the machine it runs on.
 
-From our perspective as systems programmers, virtual memory means that the addresses we work with are translated by hardware before reaching DRAM. This translation has performance implications. TLB misses are expensive, but the abstraction holds: we operate on a contiguous address space that the OS manages for us.
+From our perspective, virtual memory means that the addresses we work with are translated by hardware before reaching DRAM. This translation has performance implications. TLB misses are expensive, but the abstraction holds: we operate on a contiguous address space that the OS manages for us.
 
 ### Alignment
 
@@ -92,7 +92,7 @@ struct Good {
 
 `sizeof(struct Bad)` is 24 bytes. `sizeof(struct Good)` is 16 bytes. The compiler cannot reorder fields in C (the standard guarantees fields appear in declaration order for `repr(C)` compatibility), so the programmer must consider layout.
 
-![](/public/memory/fig1.png)
+![](/memory/fig1.png)
 <p align="center"><em>Yes, it's made with Gemini. I'm not good with Figma.</em></p>
 
 ### The Allocator's View
@@ -1562,63 +1562,9 @@ pub fn split_at_mut(&mut self, mid: usize) -> (&mut [T], &mut [T]) {
 
 The unsafe block constructs two mutable slices from raw pointers. The programmer asserts that the slices do not overlap. The safe interface guarantees this by construction: the slices cover `[0, mid)` and `[mid, len)`. This is a very _Rusty_ pattern, we are building safe abstractions over unsafe primitives. Users of `split_at_mut` cannot violate the aliasing rules. The borrow checker verifies that the two returned slices are used correctly.
 
-
 ### From Rules to Registers
 
-We established that the compiler assumes pointers of incompatible types do not alias, and that Rust's `&T`/`&mut T` distinction enforces non-aliasing at compile time. But what does the compiler *do* with this information?
-
-Return to our earlier function:
-
-```rust
-fn compute(input: &u32, output: &mut u32) {
-    if *input > 10 {
-        *output = 1;
-    }
-    if *input > 5 {
-        *output *= 2;
-    }
-}
-```
-
-Without alias information, the compiler must generate:
-
-```asm
-compute:
-    mov     eax, [rdi]        ; load *input
-    cmp     eax, 10
-    jle     .check_five
-    mov     dword ptr [rsi], 1 ; *output = 1
-.check_five:
-    mov     eax, [rdi]        ; reload *input (might have changed!)
-    cmp     eax, 5
-    jle     .done
-    shl     dword ptr [rsi], 1 ; *output *= 2
-.done:
-    ret
-```
-
-The second `mov eax, [rdi]` is the cost of uncertainty. The compiler cannot prove that the store to `[rsi]` did not modify `[rdi]`, so it reloads. This is a memory access where a register would suffice.
-
-With the guarantee that `input` and `output` do not alias, the compiler generates:
-
-```asm
-compute:
-    mov     eax, [rdi]        ; load *input once
-    cmp     eax, 10
-    jle     .check_five
-    mov     dword ptr [rsi], 2 ; *output = 2 (1 * 2, folded)
-    ret
-.check_five:
-    cmp     eax, 5
-    jle     .done
-    shl     dword ptr [rsi], 1
-.done:
-    ret
-```
-
-The reload is gone. The value stays in `eax`. The compiler also folded the `*output = 1` followed by `*output *= 2` into a single `*output = 2` for the `> 10` case. These optimizations are only valid because aliasing is ruled out.
-
-This pattern scales. Consider a loop that copies and scales an array:
+We saw that aliasing information lets the compiler keep values in registers instead of reloading from memory. But the payoff extends beyond eliminating redundant loads. Consider what happens when the compiler tries to vectorize a loop.
 
 ```c
 void scale(float* dest, const float* src, float factor, size_t n) {
@@ -1632,18 +1578,18 @@ If `dest` and `src` might overlap, each iteration depends on the previous. A wri
 
 ```asm
 .loop:
-    movss   xmm1, [rsi + rcx*4]   ; load src[i]
+    movss   xmm1, [rsi]           ; load one float from src
     mulss   xmm1, xmm0            ; multiply by factor
-    movss   [rdi + rcx*4], xmm1   ; store dest[i]
-    inc     rcx
-    cmp     rcx, rdx
-    jl      .loop
+    movss   [rdi], xmm1           ; store one float to dest
+    add     rsi, 4
+    add     rdi, 4
+    dec     rcx
+    jnz     .loop
 ```
 
-One element per iteration. On a modern CPU with 256-bit AVX registers, we are using 32 bits of a 256-bit register. We are leaving 87.5% of the SIMD capacity idle.
+One element per iteration. Almost any modern x86-64 CPU has 256-bit AVX registers that can hold eight floats. We are using 32 bits of that capacity. The other 224 bits sit idle.
 
 Add `restrict` to promise non-overlap:
-
 ```c
 void scale(float* restrict dest, const float* restrict src, float factor, size_t n) {
     for (size_t i = 0; i < n; i++) {
@@ -1652,20 +1598,21 @@ void scale(float* restrict dest, const float* restrict src, float factor, size_t
 }
 ```
 
-Now the compiler knows that iterations are independent. It can vectorize:
+Now the compiler knows iterations are independent:
 
 ```asm
-    vbroadcastss ymm0, xmm0       ; broadcast factor to all lanes
+    vbroadcastss ymm0, xmm0       ; broadcast factor to all 8 lanes
 .loop:
-    vmovups ymm1, [rsi + rcx]     ; load 8 floats from src
-    vmulps  ymm1, ymm1, ymm0      ; multiply all 8 by factor
-    vmovups [rdi + rcx], ymm1     ; store 8 floats to dest
-    add     rcx, 32
-    cmp     rcx, rax
-    jl      .loop
+    vmovups ymm1, [rsi]           ; load 8 floats from src
+    vmulps  ymm1, ymm1, ymm0      ; multiply all 8
+    vmovups [rdi], ymm1           ; store 8 floats to dest
+    add     rsi, 32
+    add     rdi, 32
+    sub     rcx, 8
+    jnz     .loop
 ```
 
-Eight elements per iteration. The same number of loop iterations now processes eight times the data. For large arrays, this is close to an 8× speedup from a single qualifier.
+Eight elements per iteration. For large arrays, this can approach an 8x speedup in some workloads. 
 
 In Rust, the equivalent function:
 
@@ -1677,11 +1624,11 @@ fn scale(dest: &mut [f32], src: &[f32], factor: f32) {
 }
 ```
 
-The signature encodes the non-aliasing constraint. `dest` is `&mut [f32]`, `src` is `&[f32]`. The borrow checker verifies at call sites that these slices do not overlap. The Rust compiler passes `noalias` to LLVM, and LLVM generates the same vectorized loop.
+The signature encodes the non-aliasing constraint. The borrow checker verifies at call sites that `dest` and `src` do not overlap. The compiler passes `noalias` to LLVM, and LLVM generates the same vectorized loop.
 
-The difference: in C, `restrict` is a promise the programmer can break. In Rust, the borrow checker enforces it. The generated code is the same. The safety guarantee is not.
+In C, `restrict` is a promise the programmer can break. In Rust, the borrow checker enforces it. The generated code is identical. The safety guarantee is not.
 
-This is why aliasing rules exist. They are not bureaucratic restrictions. They are the information the optimizer needs to use the hardware effectively. C provides this information through type rules and programmer annotations. Rust provides it through static analysis. The CPU does not care which language you used. It cares whether the generated instructions match the actual memory access patterns. Get the aliasing wrong, and the optimizer produces code that computes the wrong result. Get it right, and the optimizer produces code that uses the full width of the registers.
+This is why aliasing rules exist. They are the information the optimizer needs to use the hardware effectively. C provides this through type rules and programmer annotations. Rust provides it through static analysis. The CPU does not care which language we used. It cares whether the instructions match the actual memory access patterns.
 
 ---
 
