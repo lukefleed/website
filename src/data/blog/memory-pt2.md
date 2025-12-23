@@ -1,10 +1,10 @@
 ---
 author: Luca Lombardo
 pubDatetime: 2025-12-23T00:00:00.000Z
-title: "Who Owns the Memory? Part 2: Ownership"
+title: "Who Owns the Memory? Part 2: Ownership and Move Semantics"
 slug: who-owns-the-memory-pt2
 featured: false
-draft: true
+draft: false
 tags:
   - Rust
   - Programming
