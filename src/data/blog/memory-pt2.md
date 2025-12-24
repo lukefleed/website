@@ -923,169 +923,288 @@ When both `const T&` and `T&&` overloads exist, rvalues (prvalues and xvalues) p
 
 This machinery operates entirely at compile time. By the time we reach machine code, there are no value categories, no rvalue references, just addresses and data. The type system's job was to select the right constructor or operator; having done so, the generated code performs the memory operations we specified.
 
-<!-- ### The Moved-From Problem
+### The Moved-From Problem
 
-The move constructor transfers resources from the source object to the destination. But what happens to the source? In C++, the source object continues to exist. Its lifetime does not end at the move. It remains a valid object, occupying the same storage, and its destructor will be called when it goes out of scope.
+We have seen that in C++ rvalue references enable overloading, move constructors transfer resources, `std::move` casts to rvalue. But we glossed over a critical detail. After a move, what happens to the source object?
 
-The C++ standard describes this state as "valid but unspecified." The object is in some state that satisfies its class invariants (so the destructor can run safely), but the exact state is not defined. For `std::string`, the moved-from string might be empty, or it might contain some unspecified characters. For `std::vector`, the moved-from vector might be empty, or it might have some capacity. The standard does not say.
+The source object still exists. It has a name, an address, a type. The destructor will run when it goes out of scope. We can call methods on it, read its fields, pass it to functions. The move constructor transferred its *resources*, but the object itself remains.
 
-Some types have a fully specified moved-from state. `std::unique_ptr` is defined to be null after a move. We can rely on this:
+The C++ standard describes moved-from objects as being in a _valid but unspecified state_. Here _Valid_ means the object satisfies the invariants of its type sufficiently to be destroyed and to have certain operations performed on it (typically assignment and, for some types, queries like `empty()`). _Unspecified_ means we cannot know what values its members hold without inspecting them.
+
+For `std::unique_ptr`, the moved-from state is fully specified: the pointer becomes null. We can observe this:
 
 ```cpp
 std::unique_ptr<int> p = std::make_unique<int>(42);
 std::unique_ptr<int> q = std::move(p);
-assert(p == nullptr);  // guaranteed by the standard
+
+// p still exists, and we can use it
+if (p) {
+    std::cout << *p;  // does not execute
+} else {
+    std::cout << "p is null";  // this executes
+}
+
+int* raw = p.get();  // returns nullptr
+p.reset(new int(7)); // we can even reuse p
 ```
 
-But this guarantee is type-specific. For user-defined types, the moved-from state depends on how the move constructor was written. And critically, the compiler does not prevent us from using a moved-from object.
+The moved-from `unique_ptr` is a perfectly functional object. It holds a null pointer, knows it holds a null pointer, and behaves consistently. The `get()` method returns null. The `bool` conversion returns false. We can `reset()` it with a new pointer and continue using it. This is well-defined behavior.
+
+For `std::vector`, the situation is murkier. The standard guarantees only that the moved-from vector is in a _valid but unspecified state_. In practice, most implementations leave it empty:
 
 ```cpp
-std::vector<int> v = {1, 2, 3};
-std::vector<int> w = std::move(v);
-v.push_back(4);  // compiles and runs
-std::cout << v.size() << "\n";  // prints... something
+std::vector<int> v1{1, 2, 3, 4, 5};
+std::vector<int> v2 = std::move(v1);
+
+std::cout << v1.size();  // likely prints 0, but not guaranteed
 ```
 
-This code compiles without warning. It runs without crashing. The `push_back` operates on whatever state `v` happens to be in after the move. If the move left `v` empty, we get a vector containing just `4`. If the move left `v` with some residual capacity, we get the same result but perhaps with less reallocation. The behavior is implementation-defined, which is a polite way of saying unpredictable.
+The output is _likely_ zero because implementations typically null out the source's data pointer and set its size to zero. But the standard does not require this. An implementation could leave `v1` with garbage values, a dangling pointer, or some other state that satisfies _valid_ (meaning the destructor and assignment still work) without being predictable.
 
-The situation is worse for types where the moved-from state is less benign:
+Here is where the design becomes problematic. The compiler does not prevent us from using moved-from objects. There is no warning, no error, nothing. If we forget that we moved from a variable and try to use it, the code compiles and runs:
 
 ```cpp
-class Connection {
-public:
-    Connection(Connection&& other) noexcept
-        : socket_(other.socket_)
-    {
-        other.socket_ = -1;  // sentinel value
-    }
+void process(std::vector<int> data);
+
+void example() {
+    std::vector<int> v{1, 2, 3, 4, 5};
+    process(std::move(v));
     
-    void send(const char* data) {
-        if (socket_ == -1) {
-            // what do we do here?
-        }
-        ::send(socket_, data, strlen(data), 0);
+    // Bug: v has been moved from
+    for (int x : v) {         // compiles fine
+        std::cout << x << " "; // prints nothing, or garbage, or crashes
     }
-    
-    ~Connection() {
-        if (socket_ != -1) {
-            ::close(socket_);
-        }
-    }
-
-private:
-    int socket_;
-};
+}
 ```
 
-The move constructor sets the source's socket to -1 to prevent double-close. But `send` must now check for this sentinel value. What should it do if called on a moved-from connection? Throw an exception? Return silently? Assert and crash? The type designer must make this decision, document it, and hope that callers read the documentation.
+This is not undefined behavior in the strict sense. Iterating over an empty vector is well-defined, but it is almost certainly a bug. The programmer intended to iterate over the original data and forgot that `process` consumed it. The program silently does the wrong thing.
 
-The fundamental problem is that move in C++ is a value transformation, not a lifetime termination. The source object persists. It has a valid address. Its members are accessible. The type system does not distinguish between a moved-from object and a normal object. As far as the compiler is concerned, `v` after `std::move(v)` is still a `std::vector<int>`, fully usable.
-
-This design was intentional. The C++ committee wanted moves to be non-destructive because destructors must run, exception handling requires valid objects during stack unwinding, and backward compatibility demanded that existing code patterns remain valid. The cost is that use-after-move bugs are possible, common, and invisible to the compiler.
-
-Static analyzers can catch some of these bugs. Clang's `-Wuse-after-move` warning detects simple cases:
+The cppreference example demonstrates this explicitly:
 
 ```cpp
-std::vector<int> v = {1, 2, 3};
-std::vector<int> w = std::move(v);
-v.push_back(4);  // warning: use after move
+A a1 = f(A());
+std::cout << "Before move, a1.s = " << std::quoted(a1.s)
+          << " a1.k = " << a1.k << '\n';
+A a2 = std::move(a1);
+std::cout << "After move, a1.s = " << std::quoted(a1.s)
+          << " a1.k = " << a1.k << '\n';
 ```
 
-But the analysis is flow-sensitive and conservative. It cannot track moves through function calls, conditionals, or loops. It misses many real bugs and occasionally produces false positives. The warning is useful but not a substitute for language-level guarantees.
+Output:
+```
+Before move, a1.s = "test" a1.k = -1
+After move, a1.s = "" a1.k = 0
+```
+
+The moved-from object is accessible, observable, and the program continues without complaint. The `std::string` member is empty; the `int` member is zero.
+
+The fundamental issue here is that C++ chose to preserve the moved-from object's existence for backward compatibility and flexibility. Some use cases genuinely benefit from reusing moved-from objects, reassigning to them, or swapping with another object. The cost of this flexibility is that the type system cannot enforce the discipline of "don't use it after moving."
+
+Static analyzers and compilers can sometimes detect use-after-move, but they cannot do so reliably in all cases. The analysis is flow-sensitive and context-dependent, and function boundaries obscure the dataflow. A function that takes `T&&` might move from its parameter, or it might not, the caller cannot tell from the signature alone.
 
 
 ### Rust: Moves Without Ghosts
 
-Rust takes a different approach. When a value is moved, the source binding becomes invalid. Not invalid in the sense of holding a sentinel value, but invalid in the sense of not existing. The compiler refuses to generate code that accesses it.
+Rust takes a different approach entirely. When a value moves, the source binding becomes invalid. Not valid but unspecified, *invalid*. The compiler rejects any subsequent use:
 
 ```rust
-let v = vec![1, 2, 3];
-let w = v;
-v.push(4);  // error: borrow of moved value: `v`
-```
+fn process(data: Vec<i32>);
 
-This is a compile-time error. The program is rejected before it runs. There is no moved-from state because there is no moved-from object. The binding `v` is simply gone.
-
-How does this work at the machine level? After all, `v` occupied stack space. That space still exists. The bytes that were `v`'s pointer, length, and capacity are still there. What prevents us from reading them?
-
-The answer is that the Rust compiler tracks initialization state as part of its semantic analysis. Every binding has a status: initialized or uninitialized. When we write `let w = v`, the compiler performs a bitwise copy of `v`'s bytes into `w`'s storage, then marks `v` as uninitialized. Any subsequent attempt to use `v` is rejected during compilation.
-
-Consider the generated code for a simple move:
-
-```rust
 fn example() {
-    let v: Vec<i32> = vec![1, 2, 3];
-    let w = v;
-    // v is now uninitialized
-    drop(w);
+    let v = vec![1, 2, 3, 4, 5];
+    process(v);
+    
+    for x in v {         // error: use of moved value: `v`
+        println!("{}", x);
+    }
 }
 ```
 
-In the compiled output, the move from `v` to `w` is just a `memcpy` of 24 bytes (the size of `Vec` on 64-bit: pointer, length, capacity). There is no destructor call for `v`. There is no nullification of `v`'s pointer. The bytes that were `v` are simply abandoned. When `w` goes out of scope, `drop` is called on `w`, freeing the heap buffer. The bytes that were `v` are eventually overwritten by subsequent stack usage.
+The error message is unambiguous:
 
-This is cheaper than C++ move semantics. A C++ move constructor typically copies the fields and then nullifies the source's pointer to prevent double-free. Rust's move copies the fields and does nothing else. The "nullification" is handled by the compiler's knowledge that `v` is no longer initialized; no runtime operation is needed.
+```
+error[E0382]: use of moved value: `v`
+ --> src/main.rs:7:14
+  |
+4 |     let v = vec![1, 2, 3, 4, 5];
+  |         - move occurs because `v` has type `Vec<i32>`, which does not implement the `Copy` trait
+5 |     process(v);
+  |             - value moved here
+6 |     
+7 |     for x in v {
+  |              ^ value used here after move
+```
 
-What about conditional initialization? Rust handles this with drop flags:
+There is no moved-from state to observe because there is no way to observe it. The binding `v` is not null, not empty, not unspecified—it simply does not exist from the compiler's perspective after the move. The name remains in scope (you can shadow it with a new binding), but the compiler's initialization tracking marks it as uninitialized.
+
+At the assembly level, the actual data movement is nearly identical to C++. The `Vec`'s three words (pointer, length, capacity) are copied from one stack location to another, or into registers for a function call. There is no heap allocation, no deep copy, just 24 bytes shuffled around. The difference is purely a compile-time concept: Rust tracks that the source is no longer valid.
+
+```rust
+fn example() {
+    let v1 = vec![1, 2, 3];
+    let v2 = v1;           // v1 moved to v2
+    println!("{:?}", v1);  // error: borrow of moved value
+}
+```
+
+The generated assembly for `let v2 = v1` is a `memcpy` of the struct, essentially identical to what C++ would generate. But where C++ would let us access `v1` afterward (finding it in some "valid but unspecified" state), Rust stops compilation.
+
+This tracking happens through dataflow analysis in the compiler. Each variable has an initialization state that the compiler updates as it processes statements. When `v1` is assigned to `v2`, the compiler marks `v1` as uninitialized. Any subsequent use of `v1` is an error, as if we had declared `let v1: Vec<i32>;` without initializing it.
+
+What about reinitialization? A moved-from variable can be assigned a new value:
+
+```rust
+fn example() {
+    let mut v = vec![1, 2, 3];
+    let v2 = v;            // v is now uninitialized
+    v = vec![4, 5, 6];     // v is reinitialized
+    println!("{:?}", v);   // ok: prints [4, 5, 6]
+}
+```
+
+The compiler's tracking is flow-sensitive. After the move, `v` is uninitialized. After the reassignment, `v` is initialized with a new value. The `mut` is required because reinitialization is a form of mutation in Rust's model.
+
+Control flow complicates the analysis. If a move occurs in one branch but not another, the variable's initialization state depends on which path was taken:
+
+```rust
+fn example(condition: bool) {
+    let v = vec![1, 2, 3];
+    if condition {
+        drop(v);           // v moved into drop()
+    }
+    println!("{:?}", v);   // error: v might have been moved
+}
+```
+
+The compiler cannot statically determine which branch executes, so it conservatively assumes `v` might be uninitialized. This occasionally forces us to restructure code or use `Option<T>` to represent _maybe moved_ states explicitly.
+
+For cases where the compiler cannot determine initialization statically, Rust uses *drop flags*. These are runtime boolean values, typically stored on the stack, that track whether a value has been moved. When the variable goes out of scope, the generated code checks the flag before calling the destructor:
 
 ```rust
 fn example(condition: bool) {
     let x;
     if condition {
-        x = vec![1, 2, 3];
+        x = Box::new(0);
+        println!("{}", x);
     }
-    // Is x initialized here?
+    // x goes out of scope: compiler generates code to check if x was initialized
 }
 ```
 
-At the closing brace, should the compiler call `drop` on `x`? It depends on whether the `if` branch executed. When the compiler cannot determine initialization state statically, it inserts a hidden boolean—a drop flag—that tracks whether `x` was initialized. At scope exit, the generated code checks the flag before calling `drop`.
+The drop flag mechanism tells us something about the design trade-off Rust accepted. In straight-line code, the compiler knows exactly which bindings are initialized at every point, and generates direct drops with no runtime overhead. But conditional moves force a choice: either reject some valid programs (overly conservative static analysis), or emit a runtime check. Rust chose the latter for flexibility, keeping the flag on the stack where it costs a byte and a conditional branch at scope exit. For hot loops, we can restructure code to ensure static initialization tracking; for cold paths, the flag is negligible.
 
-For straight-line code and simple branches, the compiler can often eliminate drop flags through static analysis:
+What we cannot do in safe Rust is observe a moved-from binding. The asymmetry with C++ is not about what happens at runtime, both languages copy the same bytes, both leave the source's memory untouched until the stack frame is reclaimed. The difference is what the compiler permits us to write. C++ allows the moved-from object to participate in subsequent expressions; Rust does not. 
+
+### Copy, Move, Clone
+
+We have been speaking of "move" as if it were a single concept, but Rust distinguishes three related operations: implicit copy, move, and explicit clone. Understanding when each applies requires understanding what the type system knows about the data.
+
+An `i32` is 4 bytes. When we write `let y = x` where `x: i32`, the compiler generates a `mov` instruction that copies those 4 bytes. After the assignment, both `x` and `y` hold independent copies of the same value. We can use both. This is a *copy*.
+
+A `Vec<i32>` is 24 bytes on the stack (pointer, length, capacity), but those 24 bytes control an arbitrarily large heap allocation. When we write `let y = x` where `x: Vec<i32>`, the compiler generates the same kind of `mov` instructions to copy those 24 bytes. But now both `x` and `y` would point to the same heap allocation. If we allowed both to be used, we would have aliasing, and when both go out of scope, we would have double-free. So after the assignment, `x` is invalidated. This is a *move*.
+
+At the machine level, copy and move are identical. Both copy the bytes that constitute the value. The difference is in what the compiler permits afterward. For `Copy` types, the source remains valid. For non-`Copy` types, the source is invalidated.
+
+Rust uses the `Copy` trait to mark types where this byte-for-byte duplication is semantically complete. If copying the bytes gives us two independent, fully functional values, the type can be `Copy`. Integers, floats, `bool`, `char`, raw pointers, and tuples or arrays of `Copy` types are all `Copy`. The defining characteristic is that there is no additional resource management beyond the bytes themselves.
+
+The `Copy` trait has a constraint: a type cannot implement both `Copy` and `Drop`. If a type has a destructor, duplicating its bytes creates two values that will both try to run cleanup. For `Vec`, this means double-free. For `File`, this means closing the same file descriptor twice. The mutual exclusion between `Copy` and `Drop` is enforced by the compiler:
 
 ```rust
-let mut x = Box::new(0);    // x is initialized
-let y = x;                  // y is initialized, x is uninitialized
-x = Box::new(1);            // x is reinitialized
-                            // at scope exit: drop y, drop x
+#[derive(Copy, Clone)]
+struct Point { x: i32, y: i32 }  // ok: no Drop, all fields Copy
+
+#[derive(Copy, Clone)]
+struct Wrapper(Vec<i32>);        // error: Vec is not Copy
 ```
 
-The compiler knows the state of every binding at every point in this code. No runtime flags are needed. The optimization is called "static drop semantics," and it applies to the vast majority of real code.
+The error message is direct:
 
-The contrast with C++ is stark. In C++, after `std::move(v)`, we have a zombie object: it exists, it has a type, we can call methods on it, but it is semantically dead. The programmer must remember not to use it. The compiler offers no help (aside from optional warnings that catch only simple cases).
+```
+error[E0204]: the trait `Copy` cannot be implemented for this type
+ --> src/main.rs:4:10
+  |
+4 | #[derive(Copy, Clone)]
+  |          ^^^^
+5 | struct Wrapper(Vec<i32>);
+  |                -------- this field does not implement `Copy`
+```
 
-In Rust, after `let w = v`, the binding `v` does not exist. There is no zombie. There is nothing to accidentally use. The compiler has removed `v` from the set of valid names in scope. Attempting to use it is not a warning; it is an error that prevents compilation.
+C++ has a parallel concept in *trivially copyable* types. The C++ standard (§11.2) defines a trivially copyable class as one where each eligible copy constructor, move constructor, copy assignment operator, and move assignment operator is trivial, and the destructor is trivial and non-deleted. "Trivial" here means the compiler-generated default does the right thing, which for these operations means bitwise copy. A `struct` containing only integers and other trivially copyable types is trivially copyable.
 
-This extends to function calls. When we pass a value to a function that takes ownership, the binding is moved:
+The difference is enforcement. In C++, `std::is_trivially_copyable_v<T>` is a compile-time query we can use in `static_assert` or SFINAE, but the language does not prevent us from memcpy-ing a non-trivially-copyable object. We might get away with it if the object has no internal pointers or virtual functions. We might corrupt memory if it does. In Rust, attempting to derive `Copy` on a non-qualifying type is a hard error.
+
+`Clone` is the explicit deep copy operation. Where `Copy` happens implicitly on assignment, `Clone::clone()` must be called explicitly. The implementation can do anything: allocate new memory, copy all elements, increment reference counts, whatever is appropriate for the type. For `Vec<T>`, `clone()` allocates a new buffer and clones each element.
+
+The relationship between `Copy` and `Clone` is that `Copy` is a supertrait of `Clone`. Every `Copy` type must also implement `Clone`, and for `Copy` types, `clone()` is equivalent to a byte copy. This might seem redundant, but it allows generic code to work uniformly:
 
 ```rust
-fn consume(v: Vec<i32>) {
-    // v is owned here
-}
-
-fn main() {
-    let data = vec![1, 2, 3];
-    consume(data);
-    println!("{:?}", data);  // error: borrow of moved value
+fn duplicate<T: Clone>(x: &T) -> T {
+    x.clone()
 }
 ```
 
-The signature `fn consume(v: Vec<i32>)` declares that `consume` takes ownership. After the call, `data` is invalid. The compiler enforces this. There is no way to accidentally use `data` after passing it to `consume`.
+This function works for both `i32` (where `clone` compiles to a simple load) and `String` (where `clone` allocates and copies). The call site is uniform; the generated code is not.
 
-Compare to C++:
+When we see `.clone()` in Rust code, we know that something potentially expensive is happening. The Rust philosophy is that expensive operations should be visible. Making us write `.clone()` forces acknowledgment of this cost.
+
+C++ takes the opposite approach for copy constructors. Given `std::vector<int> v2 = v1;`, this invokes the copy constructor, which allocates and copies all elements. The syntax is identical to copying an `int`. We must know that `vector` has an expensive copy constructor; the code does not tell us. Move semantics (`v2 = std::move(v1)`) were added in C++11 partly to make expensive operations more visible, but copy remains implicit.
+
+One subtlety: Rust's `clone()` is not always a deep copy in the intuitive sense. For `Rc<T>`, calling `clone()` increments the reference count and returns a new `Rc` pointing to the same allocation. The data is shared, not duplicated. This is the correct semantics for `Rc`, since the entire point of reference counting is to share data. But it means we cannot assume that `clone()` produces an independent copy. The trait's contract is weaker: `clone()` produces a value that is semantically equivalent to the original for the purposes of the type's interface.
+
+### Elision: When Neither Happens
+
+We have seen that moving a value copies its bytes from source to destination. For a 24-byte `Vec` struct, this means three 8-byte writes. But what about returning a `Vec` from a function? Naively, we might expect: the function constructs a `Vec` in its stack frame, then on return, the `Vec` is moved to the caller's stack frame, then the caller receives the returned value. This would mean writing those 24 bytes twice.
+
+The answer to whether we can avoid this lies in how function returns work at the ABI level. The Itanium C++ ABI, which governs calling conventions on most Unix-like systems, distinguishes between *trivial* and *non-trivial* return types. A type is non-trivial for purposes of calls if it has a non-trivial destructor or a non-trivial copy or move constructor. For non-trivial return types, the ABI specifies that the caller passes an address as an implicit parameter, and the callee constructs the return value directly into this address.
+
+The Itanium ABI goes further. The address passed need not point to temporary memory on the caller's stack. Copy elision may cause it to point anywhere: to a local variable's storage, to global memory, to heap-allocated memory. The pointer is passed as if it were the first parameter in the function prototype, preceding all other parameters including `this`. If the return type has a non-trivial destructor, the caller is responsible for destroying the object after, and only after, the callee returns normally. If an exception is thrown after construction but before the return completes, the callee must destroy the return value before propagating the exception.
+
+This machinery enables what C++ calls *copy elision*. The returned object is constructed directly in its final location. Two forms are commonly discussed:
+
+**RVO (Return Value Optimization)** applies when we return a prvalue, a temporary with no name:
 
 ```cpp
-void consume(std::vector<int> v) {
-    // v is a copy or a move, depending on how we called
-}
-
-int main() {
-    std::vector<int> data = {1, 2, 3};
-    consume(std::move(data));
-    std::cout << data.size() << "\n";  // compiles, runs, prints something
+std::vector<int> make_vector() {
+    return std::vector<int>{1, 2, 3};
 }
 ```
 
-The C++ code compiles and runs. The `std::move` casts `data` to an rvalue, allowing the move constructor to be selected. But `data` still exists after the call. It is in its "valid but unspecified" state. The programmer can still access it, and the compiler will not object.
+The `vector` is constructed directly into the caller-provided address. No temporary exists in `make_vector`'s stack frame.
 
-Rust's move semantics eliminate use-after-move bugs at the language level. The bugs cannot exist because the language does not permit the code patterns that would cause them. This is not a lint or a warning or a best practice. It is a hard constraint enforced by the type system.
+**NRVO (Named Return Value Optimization)** applies when we return a named local variable:
 
-The cost is that Rust programmers must be explicit about ownership. When a function needs temporary access to a value without taking ownership, it must use a reference: `fn borrow(v: &Vec<i32>)` or `fn mutate(v: &mut Vec<i32>)`. The type signature communicates ownership intent, and the compiler verifies that the caller respects it. This is more verbose than C++'s implicit copies and moves, but it eliminates an entire category of bugs while making ownership relationships explicit in the code. -->
+```cpp
+std::vector<int> make_vector() {
+    std::vector<int> v{1, 2, 3};
+    v.push_back(4);
+    return v;
+}
+```
+
+Here the compiler can allocate `v` directly in the caller-provided space from the start. If it does, there is no copy or move on return. If it does not (perhaps because control flow makes this impossible), the return invokes the move constructor.
+
+Before C++17, both forms of elision were permitted but not guaranteed. A conforming compiler could choose not to elide, and the program would fall back to copy or move constructors. Code relying on elision for correctness, such as returning a non-copyable non-movable type, was non-portable.
+
+C++17 changed this for prvalues through a reformulation of value categories. The standard now specifies that prvalues are not *materialized* until needed. A prvalue does not create a temporary object; it initializes a target object directly. The C++ standard (§6.7.7) states that the materialization of a temporary object is generally delayed as long as possible to avoid creating unnecessary temporary objects. The result is *guaranteed copy elision* for prvalues. The statement `std::vector<int> v = make_vector();` constructs the vector directly into `v`, guaranteed by the standard, not merely permitted as an optimization.
+
+NRVO remains optional. The standard permits but does not require it. In practice, every major compiler performs NRVO when control flow permits. Multiple return statements returning different named variables typically defeat NRVO because the compiler cannot know at the function's entry which variable will be returned.
+
+How does this relate to Rust? Rust does not have *copy elision* as a named language concept because the problem is different. Rust moves are defined as bitwise copies that invalidate the source. There is no move constructor, no user code that might run, no observable side effects to elide. Moving a `Vec` copies 24 bytes regardless of context.
+
+Rust does perform the same underlying ABI-level optimization. When a function returns a value that cannot fit in registers, the caller passes a hidden pointer in `rdi` (System V) or `rcx` (Microsoft x64), and the callee writes directly to that location. But Rust does not need language-level elision rules because there is no observable difference. Bitwise copy is bitwise copy; constructing directly into the destination versus constructing locally and then copying produces identical bit patterns.
+
+```rust
+fn make_vec() -> Vec<i32> {
+    vec![1, 2, 3, 4, 5]
+}
+
+fn caller() {
+    let v = make_vec();
+}
+```
+
+With optimizations, `make_vec` receives the hidden pointer in `rdi` and writes the `Vec`'s three fields (pointer, capacity, length) directly to that address. There is no intermediate `Vec` on `make_vec`'s stack frame that gets copied out. The heap allocation happens once, the `Vec` header is written once, directly to where `caller` wants it.
+
+For types that fit in registers, both languages return values in RAX and RDX. A function returning `(i32, i32)` involves no memory operations for the return itself.
+
+The consequence is that returning large values by value in Rust is not expensive because of the return mechanism. The cost is in constructing the data structure: the allocations, the element initialization, the potential reallocations. The mechanics of getting the result back to the caller add nothing beyond what the ABI already requires for any struct return.
