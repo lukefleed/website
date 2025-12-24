@@ -1,14 +1,14 @@
 ---
 author: Luca Lombardo
 pubDatetime: 2025-12-23T00:00:00.000Z
-title: "Who Owns the Memory? Part 2: Ownership and Move Semantics"
+title: "Who Owns the Memory? Part 2: Ownership, RAII, and move semantics"
 slug: who-owns-the-memory-pt2
 featured: false
 draft: false
 tags:
   - Rust
   - Programming
-description: "Exploring ownership in Rust, C, C++ and its impact on memory management."
+description: "How C, C++, and Rust decide who calls free"
 ---
 
 ## Table of Contents
@@ -24,7 +24,7 @@ This burden is not merely administrative. The consequences of mismanagement are 
 
 The question is how programming languages help us manage this responsibility, or whether they help at all.
 
-### C: Discipline Without Enforcement
+### C: Manual Management
 
 C offers two primitives: `malloc` to acquire and `free` to release. Everything else is convention.
 
@@ -171,7 +171,7 @@ fn example() {
 }
 ```
 
-The binding `v` owns the heap-allocated buffer. When `v` goes out of scope at the closing brace, Rust calls `drop` on the `Vec`, which deallocates the buffer. This means that we can't never accidentally forget to free the memory.
+The binding `v` owns the heap-allocated buffer. When `v` goes out of scope at the closing brace, Rust calls `drop` on the `Vec`, which deallocates the buffer. We cannot accidentally forget to free the memory.
 
 The critical mechanism is the move. When we assign a value to another binding, ownership transfers:
 
@@ -543,14 +543,19 @@ The guard's lifetime tied it to the borrowed data. When the guard dropped, it jo
 
 The correct design principle is that unsafe code cannot rely on destructors running to maintain safety invariants. Safe abstractions must account for the possibility that destructors are skipped. The standard library's `Vec::drain` is a good example. Draining a vector moves elements out one at a time. If the drain iterator is forgotten mid-iteration, some elements have been moved out and the vector's length is wrong. Rather than leaving the vector in an inconsistent state, `Drain` sets the vector's length to zero at the start of iteration. If `Drain` is forgotten, the remaining elements leak (their destructors do not run, their memory is not reused), but the vector is in a valid state (empty). Leaks amplify leaks, but undefined behavior does not occur.
 
+
+## Beyond RAII
+
+We have built a comprehensive picture of ownership. Rust makes ownership tracking mandatory and statically verified. Yet even Rust's model has limits.
+
 ### The Single-Destructor Problem
 
-
-The RAII model we have described, whether in C++ or Rust, shares the same structural limitation: the destructor is a single, parameterless function that returns nothing. When an object goes out of scope, exactly one action occurs. We cannot choose between alternatives. We cannot pass runtime information to the cleanup logic. We cannot receive a result from it.
+The RAII model, whether in C++ or Rust, shares a structural limitation: the destructor is a single, parameterless function that returns nothing. When an object goes out of scope, exactly one action occurs. We cannot choose between alternatives. We cannot pass runtime information to the cleanup logic. We cannot receive a result from it.
 
 For many resources this constraint is invisible. A file handle has one sensible cleanup action: close the descriptor. A heap allocation has one cleanup action: free the memory. A mutex guard has one cleanup action: unlock the mutex. The destructor does the obvious thing, and the single-destructor model works well.
 
 But consider a database transaction. A transaction must eventually either commit (make changes permanent) or rollback (discard changes). These are fundamentally different operations with different semantics, different failure modes, and often different parameters. A commit might require a priority level. A rollback might need to log the reason for abandonment. The destructor cannot accommodate this. It must pick one.
+
 The standard workaround in C++ and Rust is to default to rollback and provide an explicit `commit` method:
 
 ```cpp
@@ -577,11 +582,11 @@ private:
 };
 ```
 
-The idea that we call `commit()` when the transaction succeeds, let the destructor rollback on error paths or early returns. Exception safety falls out naturally; if an exception propagates, the destructor runs, and uncommitted transactions rollback.
+We call `commit()` when the transaction succeeds and let the destructor rollback on error paths or early returns. Exception safety falls out naturally; if an exception propagates, the destructor runs, and uncommitted transactions rollback.
 
 The problem is that forgetting to call `commit()` is not a compile-time error. If we write a function that successfully completes its work but neglects to call `commit()`, the destructor happily rolls back. The program is wrong, but the compiler cannot tell us. We have traded one category of bug (forgetting to cleanup) for another (forgetting to finalize). The second category is arguably more insidious because the cleanup happens, silently doing the wrong thing.
 
-Rust's ownership system does not help here. We can implement the same pattern:
+Rust's ownership system does not help here:
 
 ```rust
 struct Transaction<'a> {
@@ -605,11 +610,11 @@ impl<'a> Drop for Transaction<'a> {
 }
 ```
 
-The `commit` method takes `self` by value, consuming the transaction. After calling `commit`, the binding is gone, and no second commit or rollback can occur. But if we never call `commit`, the transaction goes out of scope, `drop` runs, and we rollback. No compiler error. The type system tracked ownership but not obligation.
+The `commit` method takes `self` by value, consuming the transaction. After calling `commit`, the binding is gone. But if we never call `commit`, the transaction goes out of scope, `drop` runs, and we rollback. No compiler error. The type system tracked ownership but not obligation.
 
-#### Defer: Explicit Scope-Bound Cleanup
+### Defer: Explicit Scope-Bound Cleanup
 
-Some languages take a different approach entirely. Rather than binding cleanup to object destruction, they provide explicit defer statements that execute at scope exit.
+Some languages take a different approach. Rather than binding cleanup to object destruction, they provide explicit defer statements that execute at scope exit.
 
 Zig's `defer` runs an expression unconditionally when control leaves the enclosing block:
 
@@ -626,45 +631,24 @@ fn processFile(path: []const u8) !void {
 }
 ```
 
-The cleanup code sits immediately after the acquisition code. We see allocation and deallocation together, which aids comprehension. The `defer` executes in reverse order of declaration, matching the natural dependency order (later allocations may depend on earlier ones). If we return early, throw an error, or fall through normally, the deferred expressions run.
+The cleanup code sits immediately after the acquisition code. We see allocation and deallocation together, which aids comprehension. Zig extends this with `errdefer`, which executes only if the function returns an error, separating error-path cleanup from success-path transfer.
 
-Zig extends this with `errdefer`, which executes only if the function returns an error:
-
-```zig
-fn createResource() !*Resource {
-    const memory = try allocator.alloc(u8, size);
-    errdefer allocator.free(memory);  // only on error path
-    
-    const handle = try system.open(memory);
-    errdefer system.close(handle);  // only on error path
-    
-    return Resource{ .memory = memory, .handle = handle };
-    // success: errdefers do not run, caller now owns resources
-}
-```
-
-This separates error-path cleanup from success-path transfer. On success, we return the resources to the caller; the `errdefer` statements do not execute. On failure, we clean up everything we allocated before returning the error. The distinction between "cleanup on all paths" and "cleanup on error paths" is explicit in the code.
-
-The defer model has a structural limitation that RAII does not: the cleanup is scope-bound. We cannot return a "thing that will be cleaned up later" to our caller the way we return an RAII object. The defer runs when the current scope exits, period. If we want the cleanup to happen in a different scope, we must structure our code so that scope is the right one, or we must not use defer at all.
-
-RAII is more flexible in this regard. We can return an RAII object, store it in a data structure, transfer ownership to another thread. The cleanup travels with the object. Defer is local; RAII is transferable.
+The defer model has a structural limitation that RAII does not: the cleanup is scope-bound. We cannot return a resource to our caller the way we return an RAII object. The defer runs when the current scope exits, period. RAII is more flexible; we can return an RAII object, store it in a data structure, transfer ownership to another thread. The cleanup travels with the object. Defer is local; RAII is transferable.
 
 But defer has an advantage in simplicity. We do not need to define a type, implement a trait, worry about drop order among struct fields. We write the cleanup code inline, at the point of acquisition. For resources that do not leave the current function, defer is often cleaner.
 
-#### Linear Types
+### Linear Types: Enforcing Explicit Consumption
 
-This transaction shows us a gap in the type system's guarantees. RAII ensures that cleanup happens, but not that we made an explicit decision about which cleanup to perform. The destructor chooses for us, silently.
+The transaction example shows a gap in RAII's guarantees. RAII ensures that cleanup happens, but not that we made an explicit decision about *which* cleanup to perform. The destructor chooses for us, silently.
 
 Linear types close this gap. A linear type must be explicitly consumed; it cannot simply go out of scope. If we try to let a linear value fall out of scope without passing it to a consuming function, the compiler rejects the program.
 
-Consider a hypothetical extension to Rust with linear types:
+Consider a hypothetical extension to Rust:
 
 ```rust
 // Hypothetical syntax
 #[linear]
-struct Transaction {
-    db: Database,
-}
+struct Transaction { db: Database }
 
 fn commit(txn: Transaction) -> Result<(), Error> {
     txn.db.commit()?;
@@ -674,36 +658,28 @@ fn commit(txn: Transaction) -> Result<(), Error> {
 
 fn rollback(txn: Transaction, reason: &str) {
     txn.db.rollback();
-    log::info!("Transaction rolled back: {}", reason);
     destruct txn;  // explicitly consume
 }
 
 fn do_work(db: Database) {
     let txn = Transaction { db };
-    // ... work ...
-    
     // ERROR: `txn` goes out of scope without being consumed
     // must call either commit(txn) or rollback(txn, ...)
 }
 ```
 
-The transaction cannot be ignored. We must explicitly choose to commit or rollback. The compiler enforces this. Forgetting to decide is a compile-time error, not a runtime silent rollback.
+The transaction cannot be ignored. Forgetting to decide is a compile-time error, not a runtime silent rollback. Languages with linear types (Vale, Austral, and to some extent Haskell with LinearTypes) can express patterns that RAII cannot.
 
-Rather than one implicit destructor, we have multiple explicit consuming functions. These functions can take parameters (the rollback reason), return values (the commit result), and perform arbitrarily different logic. The compiler guarantees we call exactly one of them.
+### Why Rust Does Not Have Linear Types
 
-Languages with linear types (Vale, Austral, and to some extent Haskell with LinearTypes) can express patterns that RAII cannot. A cache entry handle that must be explicitly removed or retained. A promise that must be fulfilled exactly once. A thread handle that must be joined or detached, never silently dropped. Each of these represents a future obligation that the type system tracks.
+Rust's types are affine, not linear. An affine type can be used *at most* once; a linear type must be used *exactly* once. The difference matters when panics unwind the stack.
 
-#### Why Rust Does Not Have Linear Types
+Rust permits silent dropping because `Drop::drop` must always be callable. When a scope exits, when a panic unwinds, when we reassign a variable, Rust calls `drop`. The entire language assumes that any value can be dropped at any time.
 
-Rust's types are affine, not linear. An affine type can be used at most once: we can consume it, or we can let it drop, but we cannot use it twice. A linear type must be used exactly once: we must consume it, we cannot let it silently drop.
+Linear types would break this assumption. If a value must be explicitly consumed, what happens when a panic unwinds through a function holding that value? The unwinding code cannot know which consuming function to call, what parameters to pass, what to do with the return value. Every generic container, every iterator adapter, every function that might discard a value would need to be reconsidered.
 
-The difference is the _at most_ versus _exactly_. Rust permits silent dropping because `Drop::drop` must always be callable. When a scope exits, when a panic unwinds the stack, when we reassign a variable, Rust calls `drop`. The entire language assumes that any value can be dropped at any time.
+Rust chose affine types, accepting that the compiler cannot enforce explicit consumption but gaining a simpler model where any value can be dropped. The `#[must_use]` attribute provides a weaker guarantee: a warning (not an error) if a value is unused. It catches some mistakes but does not provide the hard guarantee that linear types would.
 
-Linear types would break this assumption. If a value must be explicitly consumed, what happens when a panic unwinds through a function holding that value? The unwinding code cannot know which consuming function to call, what parameters to pass, what to do with the return value. The type's constraint is violated by the mechanics of stack unwinding.
-
-One could imagine solutions: a separate `on_panic` handler for linear types, or restricting linear types to no_unwind contexts, or transforming panics into error returns that the programmer must handle. These are all possible, but they represent significant complexity and would require changes throughout the ecosystem. The standard library's `Vec::pop` returns an `Option<T>`, assuming it can drop the popped element if the caller ignores the return value. With linear types in `T`, this interface would be unsound. Every generic container, every iterator adapter, every function that might discard a value would need to be reconsidered.
-
-Rust chose affine types, accepting that the compiler cannot enforce explicit consumption but gaining a simpler model where any value can be dropped. The `#[must_use]` attribute provides a weaker form of the linear guarantee: a warning (not an error) if a value is unused. It catches some mistakes but does not provide the hard guarantee that linear types would.
 
 ## Move Semantics
 
@@ -730,8 +706,7 @@ If we copy this struct byte-for-byte, we produce two `Vec` instances pointing to
 
 The alternative is a deep copy: allocate new heap storage, copy all data, and update the new struct's pointer. This is correct but expensive. Copying takes time. More importantly, it allocates memory, which involves a system call (or at minimum, allocator bookkeeping) and pollutes the cache with data we may never touch again.
 
-The overhead becomes prohibitive when values pass through function boundaries repeatedly. A function that takes a `vector` by value, processes it, and returns a new `vector` might copy millions of bytes twice—once on entry, once on return. In performance-sensitive code, we wanto to avoid passing large objects by value entirely, preferring pointers or references. But this complicates APIs and obscures ownership.
-.
+The overhead becomes prohibitive when values pass through function boundaries repeatedly. A function that takes a `vector` by value, processes it, and returns a new `vector` might copy millions of bytes twiceâ€”once on entry, once on return. In performance-sensitive code, we want to avoid passing large objects by value entirely, preferring pointers or references. But this complicates APIs and obscures ownership.
 
 ### The Shallow Copy Escape
 
@@ -892,7 +867,7 @@ The self-assignment check is necessary because `std::move` can be applied to any
 
 The destructor of the moved-from object still runs. Move semantics transfer ownership of *resources*, but the source object continues to exist until its scope ends. The moved-from state must be valid enough for the destructor to execute safely. For `vector`, that means null pointer and zero lengths,the destructor checks for null before freeing, or simply has no work to do.
 
-The `noexcept` specification on move constructors matters for optimization. `std::vector` needs to relocate elements when it grows. If the element type's move constructor is `noexcept`, the vector can move elements to the new buffer. If it might throw, the vector must copy instead to preserve the strong exception guarantee—if an exception occurs during relocation, the original vector must remain intact. The difference can be dramatic for vectors of vectors.
+The `noexcept` specification on move constructors matters for optimization. `std::vector` needs to relocate elements when it grows. If the element type's move constructor is `noexcept`, the vector can move elements to the new buffer. If it might throw, the vector must copy instead to preserve the strong exception guaranteeâ€”if an exception occurs during relocation, the original vector must remain intact. The difference can be dramatic for vectors of vectors.
 
 #### Value Categories in Depth
 
@@ -919,7 +894,7 @@ f(Widget{});         // calls f(Widget&&) - prvalue
 f(std::move(w));     // calls f(Widget&&) - xvalue
 ```
 
-When both `const T&` and `T&&` overloads exist, rvalues (prvalues and xvalues) prefer the `T&&` overload. Lvalues can only bind to the lvalue reference overloads. If only `const T&` is provided, it accepts everything—rvalues bind to const lvalue references, which is why copying was the fallback before C++11.
+When both `const T&` and `T&&` overloads exist, rvalues (prvalues and xvalues) prefer the `T&&` overload. Lvalues can only bind to the lvalue reference overloads. If only `const T&` is provided, it accepts everythingâ€”rvalues bind to const lvalue references, which is why copying was the fallback before C++11.
 
 This machinery operates entirely at compile time. By the time we reach machine code, there are no value categories, no rvalue references, just addresses and data. The type system's job was to select the right constructor or operator; having done so, the generated code performs the memory operations we specified.
 
@@ -1035,7 +1010,7 @@ error[E0382]: use of moved value: `v`
   |              ^ value used here after move
 ```
 
-There is no moved-from state to observe because there is no way to observe it. The binding `v` is not null, not empty, not unspecified—it simply does not exist from the compiler's perspective after the move. The name remains in scope (you can shadow it with a new binding), but the compiler's initialization tracking marks it as uninitialized.
+There is no moved-from state to observe because there is no way to observe it. The binding `v` is not null, not empty, not unspecifiedâ€”it simply does not exist from the compiler's perspective after the move. The name remains in scope (you can shadow it with a new binding), but the compiler's initialization tracking marks it as uninitialized.
 
 At the assembly level, the actual data movement is nearly identical to C++. The `Vec`'s three words (pointer, length, capacity) are copied from one stack location to another, or into registers for a function call. There is no heap allocation, no deep copy, just 24 bytes shuffled around. The difference is purely a compile-time concept: Rust tracks that the source is no longer valid.
 
@@ -1129,7 +1104,7 @@ error[E0204]: the trait `Copy` cannot be implemented for this type
   |                -------- this field does not implement `Copy`
 ```
 
-C++ has a parallel concept in *trivially copyable* types. The C++ standard (§11.2) defines a trivially copyable class as one where each eligible copy constructor, move constructor, copy assignment operator, and move assignment operator is trivial, and the destructor is trivial and non-deleted. "Trivial" here means the compiler-generated default does the right thing, which for these operations means bitwise copy. A `struct` containing only integers and other trivially copyable types is trivially copyable.
+C++ has a parallel concept in *trivially copyable* types. The C++ standard (Â§11.2) defines a trivially copyable class as one where each eligible copy constructor, move constructor, copy assignment operator, and move assignment operator is trivial, and the destructor is trivial and non-deleted. "Trivial" here means the compiler-generated default does the right thing, which for these operations means bitwise copy. A `struct` containing only integers and other trivially copyable types is trivially copyable.
 
 The difference is enforcement. In C++, `std::is_trivially_copyable_v<T>` is a compile-time query we can use in `static_assert` or SFINAE, but the language does not prevent us from memcpy-ing a non-trivially-copyable object. We might get away with it if the object has no internal pointers or virtual functions. We might corrupt memory if it does. In Rust, attempting to derive `Copy` on a non-qualifying type is a hard error.
 
@@ -1185,7 +1160,7 @@ Here the compiler can allocate `v` directly in the caller-provided space from th
 
 Before C++17, both forms of elision were permitted but not guaranteed. A conforming compiler could choose not to elide, and the program would fall back to copy or move constructors. Code relying on elision for correctness, such as returning a non-copyable non-movable type, was non-portable.
 
-C++17 changed this for prvalues through a reformulation of value categories. The standard now specifies that prvalues are not *materialized* until needed. A prvalue does not create a temporary object; it initializes a target object directly. The C++ standard (§6.7.7) states that the materialization of a temporary object is generally delayed as long as possible to avoid creating unnecessary temporary objects. The result is *guaranteed copy elision* for prvalues. The statement `std::vector<int> v = make_vector();` constructs the vector directly into `v`, guaranteed by the standard, not merely permitted as an optimization.
+C++17 changed this for prvalues through a reformulation of value categories. The standard now specifies that prvalues are not *materialized* until needed. A prvalue does not create a temporary object; it initializes a target object directly. The C++ standard (Â§6.7.7) states that the materialization of a temporary object is generally delayed as long as possible to avoid creating unnecessary temporary objects. The result is *guaranteed copy elision* for prvalues. The statement `std::vector<int> v = make_vector();` constructs the vector directly into `v`, guaranteed by the standard, not merely permitted as an optimization.
 
 NRVO remains optional. The standard permits but does not require it. In practice, every major compiler performs NRVO when control flow permits. Multiple return statements returning different named variables typically defeat NRVO because the compiler cannot know at the function's entry which variable will be returned.
 
@@ -1208,3 +1183,271 @@ With optimizations, `make_vec` receives the hidden pointer in `rdi` and writes t
 For types that fit in registers, both languages return values in RAX and RDX. A function returning `(i32, i32)` involves no memory operations for the return itself.
 
 The consequence is that returning large values by value in Rust is not expensive because of the return mechanism. The cost is in constructing the data structure: the allocations, the element initialization, the potential reallocations. The mechanics of getting the result back to the caller add nothing beyond what the ABI already requires for any struct return.
+
+## Smart Pointers and Reference Counting
+
+Move semantics solve the problem of transferring exclusive ownership efficiently. But some data structures cannot express their sharing patterns through exclusive ownership alone. A graph where multiple edges reference the same node, a cache that outlives any single user, a callback that must remain valid for multiple callers: these require *shared* ownership, where the resource is released only when the last owner disappears.
+
+We have seen how C++ and Rust handle exclusive heap ownership through `unique_ptr` and `Box`. The move semantics we examined apply directly: `unique_ptr` leaves a nullptr after move, `Box` leaves no valid binding at all. Now we turn to the harder problem of shared ownership, where multiple owners must coordinate to determine when deallocation occurs.
+
+### Shared Ownership: `shared_ptr`
+
+When multiple parts of a program need to share ownership of heap-allocated data, we need reference counting. C++'s `shared_ptr` implements this with a *control block*: a separate heap allocation that stores metadata about the shared object.
+
+A typical `shared_ptr<T>` contains two pointers: one to the managed object (`T*`), and one to the control block. The control block contains:
+
+- A strong reference count (the number of `shared_ptr`s pointing to the object)
+- A weak reference count (the number of `weak_ptr`s, plus one if the strong count is nonzero)
+- A pointer to the managed object (or the object itself, if allocated together)
+- The deleter (type-erased, since different `shared_ptr`s with different deleters can share ownership)
+- The allocator (also type-erased)
+
+When we copy a `shared_ptr`, the strong count is incremented atomically. When a `shared_ptr` is destroyed, the strong count is decremented. If the strong count reaches zero, the managed object is destroyed (the deleter is invoked). The control block itself is not destroyed until the weak count also reaches zero, because `weak_ptr`s need to query the control block to determine whether the object still exists.
+
+```cpp
+auto p = std::make_shared<Widget>();  // one allocation: control block + Widget
+auto q = p;                           // strong count: 2
+q.reset();                            // strong count: 1
+// p destroyed, strong count: 0, Widget destroyed
+```
+
+The `make_shared` function is preferred over `shared_ptr<T>(new T)` because it performs a single allocation for both the control block and the object, improving cache locality and reducing allocation overhead. The downside is that the memory for the object cannot be released until all weak references are also gone, since the control block and object share a single allocation.
+
+### Shared Ownership: `Rc<T>` and `Arc<T>`
+
+Rust separates the single-threaded and multi-threaded cases into distinct types. `Rc<T>` (reference counted) uses non-atomic operations and is not thread-safe. `Arc<T>` (atomically reference counted) uses atomic operations and can be shared across threads.
+
+The layout of `Rc<T>` is similar in spirit to `shared_ptr`, but simpler. An `Rc<T>` is a single pointer to a heap allocation containing:
+
+- A strong count (`Cell<usize>`, non-atomic)
+- A weak count (`Cell<usize>`, non-atomic)
+- The data (`T`)
+
+There is no separate deleter or allocator. `Rc<T>` always uses the global allocator and always drops `T` in place. This means `Rc<T>` is a single pointer, 8 bytes, not two pointers like `shared_ptr`.
+
+```rust
+use std::rc::Rc;
+
+let a = Rc::new(Widget::new());  // allocates RcBox containing counts + Widget
+let b = Rc::clone(&a);           // strong count: 2
+drop(b);                         // strong count: 1
+// a dropped, strong count: 0, Widget dropped, RcBox deallocated
+```
+
+The convention is to write `Rc::clone(&a)` rather than `a.clone()`. Both work identically, but the explicit form makes clear that we are incrementing a reference count, not performing a deep copy. 
+
+`Arc<T>` has the same layout, with the counts replaced by `AtomicUsize`:
+
+```rust
+use std::sync::atomic::AtomicUsize;
+
+pub struct ArcInner<T> {
+    strong: AtomicUsize,
+    weak: AtomicUsize,
+    data: T,
+}
+```
+
+The atomic operations add overhead. Incrementing an atomic counter requires synchronization at the hardware level: a `lock` prefix on x86, load-linked/store-conditional sequences on ARM. In high-contention scenarios, cache lines bounce between cores. If shared ownership is needed but thread safety is not, `Rc` avoids this cost entirely.
+
+Rust enforces this separation at compile time. `Rc<T>` does not implement `Send` or `Sync`. Attempting to move an `Rc` across thread boundaries is a type error:
+
+```rust
+use std::rc::Rc;
+use std::thread;
+
+let rc = Rc::new(42);
+thread::spawn(move || {
+    println!("{}", rc);  // error: `Rc<i32>` cannot be sent between threads safely
+});
+```
+
+The error is not a runtime panic. The code does not compile. We cannot accidentally introduce data races by using the wrong smart pointer type.
+
+### Reference Count Synchronization
+
+The increment operation in `Arc::clone` uses `Ordering::Relaxed`. This might seem dangerous for a multi-threaded primitive, but the reasoning is precise that incrementing the count establishes no ordering relationship with any other memory access. We already have access to the `Arc`, which means we already have a valid reference to the data. We are simply recording that one more owner exists. The only requirement is atomicity itself, ensuring that two concurrent increments do not lose a count.
+
+```rust
+impl<T> Clone for Arc<T> {
+    fn clone(&self) -> Arc<T> {
+        let inner = unsafe { self.ptr.as_ref() };
+        inner.rc.fetch_add(1, Ordering::Relaxed);
+        Arc { ptr: self.ptr, phantom: PhantomData }
+    }
+}
+```
+
+The decrement is where the complexity lies. Consider what happens when the last owner drops its `Arc`. At that moment, no other thread holds a reference, and we must deallocate. But we must first ensure that all writes performed by any previous owner are visible to us. If thread A writes to `arc.data` and then drops its `Arc`, and thread B subsequently drops the last `Arc`, thread B must see thread A's writes before running the destructor.
+
+The standard solution uses release-acquire synchronization:
+
+```rust
+impl<T> Drop for Arc<T> {
+    fn drop(&mut self) {
+        let inner = unsafe { self.ptr.as_ref() };
+        if inner.rc.fetch_sub(1, Ordering::Release) != 1 {
+            return;
+        }
+        std::sync::atomic::fence(Ordering::Acquire);
+        unsafe { drop(Box::from_raw(self.ptr.as_ptr())); }
+    }
+}
+```
+
+Every `fetch_sub` with `Release` ordering guarantees that all prior writes in that thread are visible to any thread that subsequently performs an `Acquire` operation on the same atomic variable and observes the stored value. When thread B's `fetch_sub` returns 1, indicating it was the last owner, the subsequent `Acquire` fence synchronizes with all the `Release` decrements that preceded it. Thread B now sees every write that any previous owner performed before dropping.
+
+On x86, the `Release` ordering on `fetch_sub` compiles to a simple `lock xadd` instruction, which already provides the necessary ordering guarantees due to x86's strong memory model. The `Acquire` fence compiles to nothing, as x86 loads already have acquire semantics. On ARM, the situation is different: `Release` requires a `dmb ish` barrier before the store, and `Acquire` requires a barrier after the load.
+
+Using `Relaxed` for the decrement would allow the deallocating thread to see stale data, potentially reading uninitialized memory or seeing partially-written values. Using `SeqCst` everywhere would be correct but unnecessarily expensive, adding full memory barriers where weaker ordering suffices. The release-acquire pattern is the minimum synchronization required for correctness.
+
+### Raw Pointers, Variance, and the Drop Checker
+
+An `Arc` internally holds a raw pointer to the heap allocation. A naive definition might use `*mut ArcInner<T>`, but this creates two problems that `NonNull<T>` and `PhantomData<T>` solve.
+
+Raw pointers are *invariant* in their type parameter. If we have an `Arc<&'static str>`, we should be able to use it where an `Arc<&'a str>` is expected (assuming `'static: 'a`), because a longer-lived reference can substitute for a shorter-lived one. But `*mut T` does not allow this substitution. `NonNull<T>` is a pointer wrapper that is *covariant* in `T`, restoring the expected subtyping relationship.
+
+The second problem concerns the drop checker. When the compiler analyzes whether a type can be safely dropped, it needs to know what the type logically owns. A raw pointer carries no ownership information; the compiler assumes `*mut T` does not own a `T`. But `Arc<T>` *does* own a `T`, at least when it is the last owner. If we do not communicate this to the compiler, code that should be rejected might compile:
+
+```rust
+fn bad<'a>(arc: Arc<&'a str>) {
+    let local = String::from("local");
+    // Without PhantomData, the compiler might not realize
+    // that dropping arc could access the &str
+}
+```
+
+Adding `PhantomData<ArcInner<T>>` tells the drop checker that `Arc<T>` behaves as if it contains an `ArcInner<T>`, which contains a `T`. The drop checker then ensures that `T` outlives the `Arc`, preventing dangling references in the destructor.
+
+The final structure:
+
+```rust
+pub struct Arc<T> {
+    ptr: NonNull<ArcInner<T>>,
+    phantom: PhantomData<ArcInner<T>>,
+}
+```
+
+This is still a single pointer in size, 8 bytes. `PhantomData` is a zero-sized type; it affects the type system without occupying memory. `NonNull` is a `#[repr(transparent)]` wrapper around `*const T`, also pointer-sized. The layout is identical to a raw pointer, but the semantics are correct for a reference-counted smart pointer.
+
+### Weak References and the Control Block Lifetime
+
+A `weak_ptr` or `Weak` does not keep the managed object alive. It holds a pointer to the control block (or inner allocation), not to the object itself. When we attempt to *upgrade* a weak reference to a strong one, the operation must atomically check whether the object still exists and, if so, increment the strong count before another thread can decrement it to zero.
+
+Consider the race: thread A holds the last `shared_ptr` and is about to drop it. Thread B holds a `weak_ptr` and calls `lock()`. If B reads the strong count as 1, then A decrements it to 0 and deallocates, then B increments it to 1, we have a use-after-free. The upgrade must be atomic with respect to the decrement.
+
+In C++, `weak_ptr::lock()` performs a compare-and-swap loop. It loads the strong count, checks if it is zero (returning an empty `shared_ptr` if so), then attempts to atomically increment it from the observed value. If another thread modified the count in the meantime, the CAS fails and the loop retries. The implementation looks roughly like:
+
+```cpp
+shared_ptr<T> weak_ptr<T>::lock() const noexcept {
+    long count = control_block->strong_count.load(std::memory_order_relaxed);
+    while (count != 0) {
+        if (control_block->strong_count.compare_exchange_weak(
+                count, count + 1, std::memory_order_acq_rel)) {
+            return shared_ptr<T>(/* from control block */);
+        }
+        // count was updated by compare_exchange_weak on failure
+    }
+    return shared_ptr<T>();  // empty
+}
+```
+
+Rust's `Weak::upgrade()` follows the same pattern. The `acq_rel` ordering on the successful CAS ensures that if we observe a nonzero count, our subsequent access to the data sees all writes that happened before any previous owner released their reference.
+
+The control block has a two-phase destruction. When the strong count reaches zero, the managed object is destroyed: its destructor runs, and if allocated separately from the control block, its memory is freed. The control block itself survives. Only when the weak count also reaches zero is the control block deallocated. This separation allows weak references to safely query whether the object exists.
+
+With `make_shared`, the object and control block occupy a single allocation. The object's destructor runs when the strong count hits zero, but the memory cannot be freed until the weak count also hits zero, because the control block metadata lives in the same allocation. Long-lived weak references to `make_shared` objects keep the entire allocation alive, even though the object has been destroyed. Separate allocation via `shared_ptr<T>(new T)` avoids this: the object's memory is freed immediately when the strong count hits zero, and only the smaller control block remains for weak reference bookkeeping.
+
+### The Cost of Atomics in Reference Counting
+
+`Arc::clone` compiles to a `lock xadd` instruction on x86. The `lock` prefix asserts exclusive ownership of the cache line containing the reference count, forcing all other cores to invalidate their copies. On a system with 8 cores all cloning the same `Arc`, each clone causes 7 cache invalidations. The reference count ping-pongs between cores, and each increment waits for the cache line to arrive in the exclusive state.
+
+```asm
+; Arc::clone on x86-64
+mov     rax, qword ptr [rdi]        ; load pointer to ArcInner
+lock    xadd qword ptr [rax], 1     ; atomic increment of refcount
+```
+
+The `lock xadd` instruction alone takes roughly 15-30 cycles on modern x86 when uncontended, rising to 100+ cycles under contention as cores compete for the cache line. On ARM, the equivalent uses load-exclusive/store-exclusive pairs:
+
+```asm
+; Arc::clone on ARM64
+.retry:
+    ldxr    x1, [x0]          ; load-exclusive refcount
+    add     x1, x1, #1
+    stxr    w2, x1, [x0]      ; store-exclusive
+    cbnz    w2, .retry        ; retry if store failed
+```
+
+The store-exclusive fails if another core modified the cache line between the load and store, requiring a retry. Under high contention, threads spin in this loop, wasting cycles.
+
+The decrement in `Arc::drop` has the same atomic cost, plus the `Acquire` fence when we observe the count reaching zero. On x86, the fence is free because `lock xadd` already has acquire-release semantics. On ARM, it expands to a `dmb ish` (data memory barrier, inner shareable domain), which stalls the pipeline until all prior memory operations complete.
+
+Beyond instruction costs, reference counting interacts poorly with modern cache hierarchies. The reference count and the data occupy the same allocation, often the same cache line. If threads read the data while another thread clones or drops the `Arc`, false sharing occurs: the reading threads' cache lines are invalidated by the write to the reference count, even though the data itself is unchanged. This is unavoidable without splitting the count into a separate allocation, which would add indirection and defeat the single-pointer layout.
+
+`Rc<T>` avoids all of this. With no threading, the increment is a simple `add` instruction, the decrement a simple `sub`. No cache coherence traffic, no memory barriers, no retry loops. The type system's guarantee that `Rc` is not `Send` lets us omit the synchronization entirely.
+
+```asm
+; Rc::clone on x86-64
+mov     rax, qword ptr [rdi]        ; load pointer to RcBox
+inc     qword ptr [rax]             ; non-atomic increment
+```
+
+### C's Approach: Manual Reference Counting
+
+C has no built-in reference-counted smart pointers, but the pattern is pervasive. The Linux kernel's `kref`, GLib's `GObject`, and COM's `IUnknown` all implement reference counting manually, each with its own conventions and failure modes.
+
+A single-threaded implementation is pretty straightforward:
+
+```c
+struct Widget {
+    int refcount;
+    // ... data ...
+};
+
+struct Widget *widget_ref(struct Widget *w) {
+    w->refcount++;
+    return w;
+}
+
+void widget_unref(struct Widget *w) {
+    if (--w->refcount == 0) {
+        widget_destroy(w);
+        free(w);
+    }
+}
+```
+
+Threading requires atomic operations. Before C11, these were compiler or platform-specific: GCC's `__sync_fetch_and_add`, MSVC's `InterlockedIncrement`, or inline assembly. C11 standardized atomics, but the memory ordering must still be chosen correctly:
+
+```c
+#include <stdatomic.h>
+
+struct Widget {
+    atomic_int refcount;
+    // ... data ...
+};
+
+struct Widget *widget_ref(struct Widget *w) {
+    atomic_fetch_add_explicit(&w->refcount, 1, memory_order_relaxed);
+    return w;
+}
+
+void widget_unref(struct Widget *w) {
+    if (atomic_fetch_sub_explicit(&w->refcount, 1, memory_order_release) == 1) {
+        atomic_thread_fence(memory_order_acquire);
+        widget_destroy(w);
+        free(w);
+    }
+}
+```
+
+The ordering arguments mirror what we saw in `Arc`: `relaxed` for increment (we already have a valid reference), `release` for decrement (publish our writes), `acquire` fence before destruction (synchronize with all releasers). Getting any of these wrong introduces data races that manifest as sporadic corruption, use-after-free in specific timing windows, or crashes that appear once per million operations.
+
+The Linux kernel's `kref` wraps this pattern into a small struct with `kref_get` and `kref_put` operations. This discipline is not enforced, nothing prevents calling `kref_get` on an object whose count has already reached zero, or forgetting to call `kref_put` on an error path. Static analysis tools like Sparse and Coverity catch some bugs; the rest are found through testing, fuzzing, or production crashes.
+
+Every usage site must remember to call `widget_ref` when acquiring a reference and `widget_unref` when releasing one. There is no automatic cleanup on scope exit, no destructor to invoke at the end of a block. If a function returns early due to an error, every acquired reference must be explicitly released. Missing a single `unref` leaks memory; an extra `unref` corrupts the count or triggers a double-free.
+
+---
+
+Part III will examine how types are represented in memory and how polymorphism is implemented. Rust reorders struct fields by default to minimize padding; `repr(C)` restores predictable layout for FFI. Fat pointers carry metadata alongside the data address: slices carry length, trait objects carry vtable pointers. We will compare monomorphization (C++ templates, Rust generics) against dynamic dispatch (C++ virtual functions, Rust trait objects), examining the generated code and the trade-offs in binary size, call overhead, and cache behavior. Closures will complete the picture: anonymous structs that capture their environment, with the `Fn`/`FnMut`/`FnOnce` traits encoding how they access captured variables.
