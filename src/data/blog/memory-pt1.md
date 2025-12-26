@@ -11,11 +11,13 @@ tags:
 description: "From hardware to aliasing rules: understanding how C, C++, and Rust map types to memory."
 ---
 
-## Table of contents
 
 This is the first article in a $n$-part series exploring how C, C++, and Rust manage memory at a low level. We begin where the hardware does: with bytes. From there, we build up to objects, storage duration, lifetime, and aliasing, the vocabulary required to understand ownership. 
 
+## Table of contents
+
 ## Memory Is Just Bytes
+
 
 A 64-bit processor sees memory as a flat array of $2^{64}$ addressable bytes. It does not know what a `struct` is. It does not know what an `int` is. When we execute `mov rax, [rbx]`, the CPU fetches 8 bytes starting at the address in `rbx`, shoves them into `rax`, and moves on. The semantic meaning of those bytes, whether they represent a pointer, a floating-point number, or part of a UTF-8 string, exists only in our source code and the instructions we generate.
 
@@ -59,7 +61,7 @@ union {
     complex double val[2];
 } overlay;
 
-// complex double typically requires 8-byte alignment
+// complex double typically requires 16-byte alignment (sizeof is 16)
 complex double *p = (complex double *)&overlay.bytes[4];  // misaligned
 *p = 1.0 + 2.0*I;  // undefined behavior
 ```
@@ -90,7 +92,7 @@ struct Good {
 };
 ```
 
-`sizeof(struct Bad)` is 24 bytes. `sizeof(struct Good)` is 16 bytes. The compiler cannot reorder fields in C (the standard guarantees fields appear in declaration order for `repr(C)` compatibility), so the programmer must consider layout.
+`sizeof(struct Bad)` is 24 bytes. `sizeof(struct Good)` is 16 bytes. the compiler cannot reorder fields in C (the standard guarantees fields appear in declaration order with increasing addresses), so the programmer must consider layout.
 
 ![](/memory/fig1.png)
 <p align="center"><em>Yes, it's made with Gemini. I'm not good with Figma.</em></p>
@@ -109,7 +111,7 @@ When we call `malloc(n)`, we do not receive exactly `n` bytes of usable memory. 
 +------------------+
 ```
 
-The `size` field stores the chunk size with three flag bits: `P` (previous chunk in use), `M` (chunk obtained via `mmap`), and `N` (non-main arena). The actual usable size is `size & ~0x7`.
+The `size` field stores the chunk size with three flag bits: `P` (previous chunk in use), `M` (chunk obtained via `mmap`), and `A` (non-main arena). The actual usable size is `size & ~0x7`.
 
 This means:
 
