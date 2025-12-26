@@ -11,12 +11,11 @@ tags:
 description: "How C, C++, and Rust decide who calls free"
 ---
 
+In the [first part](https://lukefleed.xyz/posts/who-owns-the-memory-pt1/) of this series, we saw that objects occupy storage, that storage has duration, and that the type system imposes structure on raw bytes. But we have sidestepped a question that dominates systems programming in practice: when heap-allocated memory must be released, who bears responsibility for releasing it?
+
 ## Table of Contents
 
-
 ## Ownership: Who Calls Free?
-
-We have established that objects occupy storage, that storage has duration, and that the type system imposes structure on raw bytes. But we have sidestepped a question that dominates systems programming in practice: when heap-allocated memory must be released, who bears responsibility for releasing it?
 
 The stack is self-managing. When a function returns, the stack pointer moves and automatic storage vanishes. There is no decision to make, no function to call, no possibility of error. The heap is different. Memory obtained through `malloc` persists until someone calls `free`. The allocator cannot know when we are finished with an allocation; only our program logic knows that. And so the burden falls on us.
 
