@@ -1,15 +1,19 @@
 ---
 author: Luca Lombardo
 pubDatetime: 2025-12-25T00:00:00.000Z
-title: "Who Owns the Memory? Part 3: "
+title: "Who Owns the Memory? Part 3: Representation"
 slug: who-owns-the-memory-pt3
 featured: false
-draft: true
+draft: false
 tags:
   - Rust
   - Programming
-description: " "
+description: "How abstract types become concrete bit patterns and how polymorphism is obtained in C, C++, and Rust."
 ---
+
+This is the third part of a series exploring how C, C++, and Rust manage memory at a low level. In [Part I](https://lukefleed.xyz/posts/who-owns-the-memory-pt1/) we examined how memory is organized at the hardware level. [Part II](https://lukefleed.xyz/posts/who-owns-the-memory-pt2/) explored ownership and lifetime, showing how the three languages answer the question of who is responsible for freeing memory and when access to that memory is valid.
+
+Part III turns to _representation_: how abstract types become concrete bit patterns, and how polymorphism, the ability to write code that operates on many types, is implemented.
 
 ## Table of Contents
 
@@ -164,10 +168,10 @@ union MyEnumRepr {
 }
 
 #[repr(C)]
-struct MyVariantA { tag: u32, value: u32 }
+struct MyVariantA { tag: u64, value: u64 }
 
 #[repr(C)]
-struct MyVariantB { tag: u32, _pad: u32, value0: f32, _pad2: u32, value1: u64 }
+struct MyVariantB { tag: u64, _pad: u64, value0: f64, _pad2: u64, value1: u64 }
 // ... and so on
 ```
 
@@ -972,21 +976,17 @@ The Rust Reference explicitly lists invalid wide pointer metadata as undefined b
 
 ## Polymorphism: Monomorphization vs Vtables
 
-The previous section examined how Rust represents trait objects at runtime, with wide pointers carrying vtable metadata. But trait objects are only one half of Rust's polymorphism story. To understand why two mechanisms exist and when to choose each, we need to examine the fundamental tension that every systems language must resolve: writing code that operates on multiple types without sacrificing performance.
+We saw how Rust represents pointers to dynamically sized types. A `&dyn Draw` carries both a data pointer and a vtable pointer, 16 bytes that enable runtime method dispatch. But this raises a question we have not yet answered: why does Rust need two polymorphism mechanisms at all? Templates and generics already let us write code that works across types. Why introduce vtables?
 
-### The Core Trade-off
+When we write a function that operates on "any type implementing trait X," the compiler must decide how to generate code for it. Two strategies exist. The compiler can stamp out a separate copy of the function for each concrete type that actually gets used, a process called *monomorphization*. Alternatively, the compiler can generate a single copy of the function that dispatches method calls through a table of function pointers at runtime. Both C++ and Rust support both strategies. C, lacking native generics, provides only workarounds that approximate each approach with varying degrees of type safety.
 
-Consider a function that finds the maximum element in a slice. We want this to work for `i32`, `f64`, `String`, and any other type that can be compared. Writing separate implementations for each type is tedious and error-prone. We need *parametric polymorphism*, code parameterized over types.
+Monomorphization eliminates runtime indirection entirely; every call is direct, every function body can be inlined, the optimizer sees through abstraction boundaries. But the binary contains a separate copy of the generic code for every type instantiation, which bloats both compile time and binary size. Dynamic dispatch through vtables produces a single copy of the code regardless of how many implementing types exist, but every method call requires loading a function pointer from memory and jumping through it, which the CPU cannot predict well and which prevents inlining.
 
-Two implementation strategies exist. The compiler can generate a specialized copy of the code for each concrete type used, a process called *monomorphization*. Alternatively, the compiler can generate a single copy of the code that operates through an indirection layer, dispatching to type-specific implementations at runtime via *vtables*. Both C++ and Rust support both strategies. C, lacking native generics, relies on workarounds that approximate each approach.
+### C Without Generics
 
-Monomorphization eliminates runtime indirection but increases binary size and compile time. Dynamic dispatch keeps code size small but introduces branch prediction overhead and prevents inlining. Understanding when each trade-off applies requires examining how each language implements both strategies.
+C has no built-in parametric polymorphism. We cannot write a function that operates on "any comparable type" and have the compiler generate type-safe, specialized versions. Historically, C programmers used three workarounds.
 
-### C: Life Without Generics
-
-C has no built-in parametric polymorphism. We historically used three workarounds, each with significant limitations.
-
-**Preprocessor macros** perform textual substitution before compilation. We can write a type-agnostic max function as a macro:
+Preprocessor macros perform textual substitution before the compiler ever sees the code:
 
 ```c
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
@@ -995,17 +995,17 @@ int x = MAX(3, 5);           // expands to ((3) > (5) ? (3) : (5))
 double y = MAX(1.5, 2.5);    // expands to ((1.5) > (2.5) ? (1.5) : (2.5))
 ```
 
-This achieves something like monomorphization, since each use site expands to type-specific code. But macros operate outside the type system. The preprocessor has no idea what types `a` and `b` are; it pastes text. This leads to classic pitfalls:
+Each use site expands to type-specific code, achieving something like monomorphization. But macros operate outside the type system. The preprocessor has no concept of what `a` and `b` are; it pastes text. This leads to the classic double-evaluation trap:
 
 ```c
 #define SQUARE(x) ((x) * (x))
 int a = 5;
-int b = SQUARE(a++);  // expands to ((a++) * (a++)), UB due to double increment
+int b = SQUARE(a++);  // expands to ((a++) * (a++)), undefined behavior
 ```
 
-The macro evaluates its argument twice, causing undefined behavior when the argument has side effects.
+The argument is evaluated twice. If it has side effects, the program's behavior becomes undefined. The macro cannot evaluate its argument once and bind it to a local; macros do not have local variables.
 
-**`_Generic` selection** (C11) provides compile-time type dispatch:
+C11 introduced `_Generic`, which provides compile-time type dispatch:
 
 ```c
 #define abs(x) _Generic((x),    \
@@ -1018,9 +1018,9 @@ int abs_int(int x) { return x < 0 ? -x : x; }
 long abs_long(long x) { return x < 0 ? -x : x; }
 ```
 
-The `_Generic` keyword examines the type of its first argument and selects the corresponding expression. This is more principled than macros, since the selection happens within the type system. But it requires manually listing every supported type and writing separate implementations for each. We have not reduced code duplication; we have centralized the dispatch.
+The `_Generic` keyword examines the type of its first argument and selects the corresponding expression. This is better than macros: the selection happens within the type system, and each branch is a proper function that evaluates its argument once. But we must enumerate every supported type explicitly and write separate implementations for each. We have not reduced code duplication; we have centralized dispatch.
 
-**Function pointers with `void*`** approximate dynamic dispatch:
+For dynamic polymorphism, we can use function pointers with `void*`:
 
 ```c
 typedef int (*comparator)(const void*, const void*);
@@ -1035,13 +1035,11 @@ int arr[] = {5, 2, 8, 1};
 qsort(arr, 4, sizeof(int), compare_int);
 ```
 
-The standard library's `qsort` operates on arbitrary types by treating the array as raw bytes (`void*`) and accepting a comparator function pointer. The actual comparison logic lives in a type-specific callback. This works, but sacrifices type safety: nothing prevents passing a `compare_int` function to sort an array of `double`. The compiler cannot verify correctness.
+The standard library's `qsort` treats the array as raw bytes and accepts a function pointer for comparison. The type information is erased: the comparator receives `void*` and must cast internally. Nothing prevents passing `compare_int` to sort an array of `double`. The compiler cannot verify correctness. If the programmer gets it wrong, the program silently produces garbage or crashes.
 
-None of these approaches satisfies. Macros lack type safety and hygiene. `_Generic` requires exhaustive enumeration of types. Function pointers with `void*` sacrifice compile-time checking entirely. C++ templates and Rust generics were designed to solve these problems.
+### C++ Templates
 
-### C++ Templates: Monomorphization with Duck Typing
-
-C++ templates define families of functions or classes parameterized over types:
+C++ templates let us define families of functions and classes parameterized over types:
 
 ```cpp
 template<typename T>
@@ -1053,49 +1051,25 @@ int x = max(3, 5);           // instantiates max<int>
 double y = max(1.5, 2.5);    // instantiates max<double>
 ```
 
-When the compiler encounters `max(3, 5)`, it deduces that `T = int` and generates a specialized function `max<int>`. When it encounters `max(1.5, 2.5)`, it generates `max<double>`. Each instantiation is a separate function in the final binary.
+When the compiler encounters `max(3, 5)`, it deduces `T = int` and generates a specialized function `max<int>`. A separate `max<double>` gets generated for the second call. Each instantiation is compiled independently, producing code identical to what we would write by hand. There is no runtime overhead.
 
-This is monomorphization: the generic template is transformed into multiple concrete implementations. The generated code is identical to what we would write by hand. There is no runtime overhead; each call to `max<int>` is a direct call to a function that compares two `int` values.
+Templates use what is sometimes called *duck typing*: if the operations used in the template body are valid for the concrete type, instantiation succeeds. If not, the compiler emits an error. The problem is that errors emerge from deep within the template instantiation, often producing notoriously verbose diagnostics that obscure the root cause. The template's requirements are implicit; we discover at instantiation time whether a type satisfies them.
 
-**Duck typing and SFINAE.** C++ templates use what is sometimes called *duck typing*: the template body is compiled against the concrete type, and if the operations in the body are valid for that type, the instantiation succeeds. If not, the compiler emits an error.
-
-```cpp
-template<typename T>
-void print(T x) {
-    std::cout << x;  // requires operator<< for T
-}
-
-print(42);            // OK: int has operator<<
-print(std::vector<int>{1,2,3});  // error: no operator<< for vector
-```
-
-The error message emerges from deep within the template instantiation, often producing notoriously verbose output that obscures the actual problem. The root cause is that template requirements are implicit: we discover at instantiation time whether the operations are valid, not at definition time.
-
-This implicit checking enables a technique called SFINAE (Substitution Failure Is Not An Error). When the compiler tries to instantiate a template and the substitution fails, it does not immediately produce an error; it removes that template from the overload set. This allows *template metaprogramming* where we select between implementations based on type properties:
+This implicit checking enables SFINAE (Substitution Failure Is Not An Error), a mechanism where invalid template substitutions silently remove candidates from the overload set rather than causing hard errors. Before C++20, constraining templates required arcane metaprogramming with `std::enable_if` and type traits:
 
 ```cpp
 #include <type_traits>
 
-// Enabled only for integral types
 template<typename T>
 typename std::enable_if<std::is_integral<T>::value, T>::type
 absolute(T x) {
     return x < 0 ? -x : x;
 }
-
-// Enabled only for floating-point types
-template<typename T>
-typename std::enable_if<std::is_floating_point<T>::value, T>::type
-absolute(T x) {
-    return std::fabs(x);
-}
 ```
 
-The `std::enable_if` machinery conditionally makes the return type valid or invalid depending on the type trait. When instantiating `absolute<int>`, the first overload succeeds (integral type), so the second is discarded via SFINAE. When instantiating `absolute<double>`, the second succeeds.
+The `enable_if` machinery conditionally makes the return type valid or invalid depending on the type trait. If `T` is not integral, the substitution fails, and this overload is removed from consideration. The code works but is dense with machinery that obscures intent.
 
-SFINAE is powerful but arcane. The code is dense with template machinery that obscures the actual logic. Error messages remain poor because the constraints are expressed indirectly through type manipulations.
-
-**C++20 Concepts** address this by making constraints explicit:
+C++20 introduced concepts, which make constraints explicit:
 
 ```cpp
 #include <concepts>
@@ -1112,35 +1086,28 @@ T max(T a, T b) {
 }
 ```
 
-The `Comparable` concept declares what operations a type must support. The template explicitly states its constraint: `T` must satisfy `Comparable`. If we try to instantiate `max` with a type that lacks comparison operators, the error message directly refers to the violated concept, not to failed substitution deep in the template body.
+The `Comparable` concept declares what operations `T` must support. The template states its constraint explicitly in the signature. If we instantiate `max` with a non-comparable type, the error message refers directly to the violated concept rather than to some failed substitution buried in the template body.
 
-Concepts bring C++ templates closer to Rust's trait bounds. The constraint is declared upfront, checked at instantiation against the concept definition, and produces clear error messages.
-
-**Template costs.** Monomorphization has compile-time and binary-size costs. The compiler must parse and instantiate templates separately in every translation unit that uses them. This is why C++ template code traditionally lives in headers: the definition must be visible wherever instantiation occurs.
-
-Each distinct instantiation produces a separate copy of the generated code. A template used with 50 different types produces 50 copies of the function in the final binary. For large templates like `std::sort` or `std::unordered_map`, this causes significant binary bloat.
-
-The standard mitigation is *explicit instantiation*, where we declare which instantiations to generate in a single translation unit:
+Regardless of how constraints are expressed, templates monomorphize. For large templates like `std::sort` or `std::unordered_map`, binary bloat becomes pretty significant. We can mitigate this effect with explicit instantiation, where we declare in a single translation unit which instantiations to generate:
 
 ```cpp
-// header: my_template.h
+// header
 template<typename T>
 void process(T x);
 
-// source: my_template.cpp
+// source
 template<typename T>
 void process(T x) { /* implementation */ }
 
-// explicit instantiations
 template void process<int>(int);
 template void process<double>(double);
 ```
 
-Other translation units can now use `process<int>` and `process<double>` without triggering instantiation; they link against the pre-generated code. This reduces compile time and binary size at the cost of flexibility (only the explicitly instantiated types are available).
+Other translation units can use `process<int>` without triggering instantiation; they link against the pre-generated code. This reduces compile time and binary size at the cost of flexibility.
 
-### C++ Virtual Functions: The Itanium ABI
+### C++ Virtual Functions
 
-C++ also supports runtime polymorphism through virtual functions. A class with at least one virtual function is *polymorphic*:
+C++ supports runtime polymorphism through virtual functions. A class with at least one virtual function is *polymorphic*:
 
 ```cpp
 class Shape {
@@ -1164,7 +1131,7 @@ public:
 };
 ```
 
-When we call a virtual function through a pointer or reference to the base class, the actual function called depends on the dynamic type of the object:
+When we call a virtual function through a base class pointer or reference, the actual function invoked depends on the dynamic type of the object:
 
 ```cpp
 void print_area(const Shape& s) {
@@ -1177,60 +1144,45 @@ print_area(c);  // calls Circle::area
 print_area(r);  // calls Rectangle::area
 ```
 
-The compiler cannot know at compile time which `area` implementation to call; `s` might be any type derived from `Shape`. The decision is deferred to runtime.
+The compiler cannot know at compile time which implementation to call. The decision is deferred to runtime.
 
-**The vptr and vtable.** To implement this, the compiler inserts a hidden pointer (the *vptr*) into every object of a polymorphic class. This pointer refers to a static table of function pointers (the *vtable*) shared by all objects of the same dynamic type.
+To implement this, the compiler inserts a hidden pointer (the *vptr*) into every object of a polymorphic class. The vptr points to a static table (the *vtable*) shared by all objects of the same dynamic type. The Itanium C++ ABI, used by GCC, Clang, and most non-Windows compilers, specifies the vtable layout precisely.
 
-The Itanium C++ ABI (used by GCC, Clang, and most non-MSVC compilers) specifies the vtable layout precisely. The vtable contains components at negative offsets from the address the vptr points to:
+The vtable contains several components, laid out at specific offsets from an *address point*. Components before the address point (at negative offsets) include virtual call offsets for adjusting `this` pointers in multiple inheritance scenarios, virtual base offsets for locating virtual base subobjects, and the *offset-to-top*, a `ptrdiff_t` giving the displacement from this vtable pointer location to the top of the complete object (used by `dynamic_cast<void*>`). At the address point sits the RTTI pointer, pointing to type information for runtime type identification. After the address point come the virtual function pointers themselves, in declaration order.
+
+For a simple class hierarchy without multiple inheritance, the layout simplifies. A `Circle` object in memory looks like:
 
 ```
-Vtable for Circle (vptr points here → offset 0):
--16:  offset-to-top (ptrdiff_t, 0 for complete objects)
--8:   RTTI pointer (typeinfo for Circle)
- 0:   &Circle::~Circle() [complete destructor]
-+8:   &Circle::~Circle() [deleting destructor]
+Circle object (16 bytes on x86-64):
++0:   vptr (8 bytes, points to Circle's vtable)
++8:   radius (8 bytes, double)
+
+Circle's vtable:
+-16:  offset-to-top (0)
+-8:   RTTI pointer
+ 0:   &Circle::~Circle() (complete destructor)
++8:   &Circle::~Circle() (deleting destructor)
 +16:  &Circle::area()
 ```
 
-The *offset-to-top* field holds the displacement from the vptr location to the top of the complete object. For a complete object (not a base subobject), this is zero. For secondary vtables in multiple inheritance hierarchies, it can be negative. This field enables `dynamic_cast<void*>` to find the most-derived object.
-
-The *RTTI pointer* points to the `typeinfo` structure used for `typeid` and `dynamic_cast`. It is always present, even when RTTI is disabled at compile time (in which case it is null).
-
-Virtual function pointers follow in declaration order. The destructor occupies two slots: the *complete destructor* destroys the object but does not free memory, while the *deleting destructor* destroys and then calls `operator delete`. This distinction matters for correct cleanup of heap-allocated polymorphic objects.
-
-A `Circle` object has the following memory layout:
-
-```
-Circle object:
-+0:   vptr (points to Circle vtable, offset 0)
-+8:   radius (double)
-```
-
-Every `Circle` instance carries the vptr as its first member, adding 8 bytes of overhead on 64-bit platforms.
-
-**Virtual call in assembly.** When we call `s.area()` where `s` is a `Shape&`, the compiler generates code to load the vptr from the object, index into the vtable to find the function pointer for `area`, and call through that function pointer.
-
-On x86-64:
+The vptr in every `Circle` instance points to offset 0 of this vtable, the address point. When we call `s.area()` where `s` is a `Shape&`, the compiler generates:
 
 ```asm
-; rdi = pointer to Shape object (this)
-print_area:
-    mov     rax, [rdi]          ; load vptr from object
-    mov     rax, [rax + 16]     ; load area() pointer from vtable offset +16
-    jmp     rax                 ; tail call to the virtual function
+; rdi = pointer to Shape object
+mov     rax, [rdi]          ; load vptr from object
+mov     rax, [rax + 16]     ; load area() pointer from vtable
+call    rax                 ; indirect call
 ```
 
-The two memory loads (vptr, then vtable entry) occur on every virtual call. More significantly, the indirect jump through `rax` is an *indirect branch*. The CPU's branch predictor must guess the target without knowing it until the register value is computed.
+Two memory loads occur on every virtual call: one to fetch the vptr from the object, one to fetch the function pointer from the vtable. More significantly, the `call rax` is an indirect branch. The CPU's branch predictor must guess the target without knowing it until the register value is computed. If a call site invokes many different implementations (iterating over a heterogeneous container of shapes), the predictor may thrash, causing pipeline stalls.
 
-**Performance implications.** Virtual functions prevent the compiler from inlining. When we call `s.area()`, the compiler does not know which concrete function will be invoked, so it cannot substitute the function body at the call site. This blocks constant propagation, dead code elimination, and other optimizations that cross function boundaries.
+The optimizer cannot inline through a virtual call. It does not know which function will be invoked, so it cannot substitute the function body at the call site. This blocks constant propagation, dead code elimination, and other interprocedural optimizations.
 
-The indirect branch also strains the CPU. Direct calls have predictable targets that the instruction prefetcher can anticipate. Indirect calls through registers require the *indirect branch predictor*, which maintains a table of recent targets for each call site. If a call site invokes many different implementations (a heterogeneous collection of shapes), the predictor may never stabilize, causing pipeline stalls on every misprediction.
+The advantage is code size. There is exactly one `print_area` function, regardless of how many shape types exist. The vtable adds per-class overhead, not per-use overhead. For large class hierarchies, this can dramatically reduce binary size compared to templated alternatives.
 
-The trade-off is compile time and binary size. There is only one copy of `print_area`, not one per shape type. The vtable adds per-class overhead, not per-use overhead like template instantiation. For large class hierarchies with many virtual methods, this can significantly reduce binary size compared to templated alternatives.
+### Rust Generics
 
-### Rust Generics: Monomorphization with Explicit Bounds
-
-Rust generics follow the monomorphization strategy, like C++ templates, but with a crucial difference: constraints are explicit from the start.
+Rust generics follow the monomorphization strategy, like C++ templates, but with a critical difference: constraints are declared upfront.
 
 ```rust
 fn max<T: PartialOrd>(a: T, b: T) -> T {
@@ -1241,9 +1193,9 @@ let x = max(3, 5);           // instantiates max::<i32>
 let y = max(1.5, 2.5);       // instantiates max::<f64>
 ```
 
-The bound `T: PartialOrd` states upfront that `T` must implement the `PartialOrd` trait. The compiler checks this bound at the call site: if we try to call `max` with a type that does not implement `PartialOrd`, the error message directly states that the trait bound is not satisfied.
+The bound `T: PartialOrd` states that `T` must implement the `PartialOrd` trait. The compiler checks this at the call site: calling `max` with a type that does not implement `PartialOrd` produces an error that directly states the unsatisfied bound.
 
-Inside the function body, we can only use operations that `PartialOrd` guarantees. The compiler rejects code that would compile for some `T` but not others:
+Inside the function body, we can only use operations that `PartialOrd` guarantees. Attempting to call methods not provided by the bound fails immediately, not at instantiation:
 
 ```rust
 fn broken<T: PartialOrd>(a: T, b: T) -> T {
@@ -1252,45 +1204,15 @@ fn broken<T: PartialOrd>(a: T, b: T) -> T {
 }
 ```
 
-This differs from C++ templates, where the body is compiled *tentatively* and errors emerge during instantiation. Rust checks the generic function against its declared bounds before any instantiation occurs.
+Rust checks the generic function against its declared bounds before instantiation. This differs from C++ templates, where the body is tentatively compiled against each concrete type, with errors emerging during instantiation.
 
-**Trait bounds vs Concepts.** Rust trait bounds and C++20 Concepts serve similar purposes: making generic constraints explicit. The key difference is integration with the type system.
+The monomorphization process itself works similarly. When the Rust compiler encounters generic function calls, it records the concrete types. During code generation, the *monomorphization collector* traverses the call graph to identify all required instantiations. Each generic function paired with each set of concrete type arguments becomes a distinct *mono item* that gets compiled to machine code.
 
-A Rust trait is a first-class type system construct. Implementing a trait for a type adds that type to the trait's set of implementors. The relationship is explicit and verifiable by the compiler.
+The collector partitions mono items into *Codegen Units* (CGUs). For incremental compilation, the partitioner creates separate CGUs for stable non-generic code and for monomorphized instances. When only generic instantiations change, the stable CGU can be reused.
 
-A C++ concept is a predicate that checks whether certain expressions are valid. The expressions in a `requires` clause are evaluated syntactically; the concept does not establish a formal relationship between the type and the operations. Two types might satisfy the same concept for entirely different reasons.
+The same binary size concerns apply. A generic function used with many types produces many copies. The `cargo llvm-lines` tool shows which functions contribute most to generated LLVM IR. In large codebases, common utility functions like `Option::map` and `Result::map_err` can get instantiated hundreds of times, dominating code size.
 
-In practice, both approaches produce clear error messages and enable the compiler to reject invalid instantiations early.
-
-**Monomorphization in the compiler.** When the Rust compiler encounters a generic function call, it records the concrete types used. During code generation, the *monomorphization collector* traverses the call graph to find all required instantiations:
-
-```
-main calls max::<i32>
-main calls max::<f64>
-max::<i32> needs PartialOrd::gt for i32
-max::<f64> needs PartialOrd::gt for f64
-```
-
-The collector produces a list of *mono items*: concrete functions that need machine code generated. Each generic function paired with each set of concrete type arguments becomes a distinct mono item.
-
-The compiler then partitions these items into *Codegen Units* (CGUs). For incremental compilation, the partitioner creates two CGUs per source module: one for stable, non-generic code, and one for monomorphized instances. This allows the compiler to reuse stable code when only the generic instantiations change.
-
-**Reducing monomorphization bloat.** The same binary size concerns apply to Rust as to C++ templates. A generic function used with many types produces many copies.
-
-The `cargo llvm-lines` tool shows which functions contribute most to generated LLVM IR:
-
-```
-$ cargo llvm-lines
-Lines          Copies        Function name
------          ------        -------------
-30000          150           core::ptr::drop_in_place
-12000          80            alloc::vec::Vec<T>::push
-8000           40            core::result::Result<T,E>::map
-```
-
-Common utility functions like `Option::map` or `Result::map_err` get instantiated for every type they are used with. In large codebases, these can dominate binary size.
-
-The standard mitigation is the *inner function pattern*: move the bulk of the logic into a non-generic inner function, leaving only a thin generic wrapper:
+The standard mitigation is the *inner function pattern*: move the bulk of the logic into a non-generic inner function, leaving a thin generic wrapper:
 
 ```rust
 pub fn read<P: AsRef<Path>>(path: P) -> io::Result<Vec<u8>> {
@@ -1305,168 +1227,30 @@ pub fn read<P: AsRef<Path>>(path: P) -> io::Result<Vec<u8>> {
 }
 ```
 
-The outer generic function calls `as_ref()` to convert the generic `P` to a concrete `&Path`, then delegates to the non-generic `inner`. Now `inner` is compiled once, regardless of how many different path types are used.
+The outer generic function calls `as_ref()` to convert `P` to `&Path`, then delegates to `inner`. Now `inner` compiles once regardless of how many path types are used. The outer wrapper is tiny, its monomorphization overhead minimal.
 
-### Rust Trait Objects: The Dynamic Alternative
+### Rust Trait Objects
 
-When monomorphization costs are prohibitive, Rust offers trait objects as a dynamic dispatch alternative. Section 11 covered the representation; here we focus on the trade-off.
+When monomorphization costs are prohibitive, Rust offers trait objects. We already covered the representation: `&dyn Trait` is a wide pointer containing a data pointer and a vtable pointer. Calling a method loads the function pointer from the vtable and invokes it indirectly.
 
-A trait object `&dyn Trait` is a wide pointer containing a data pointer and a vtable pointer. Calling a method involves loading the function pointer from the vtable and invoking it indirectly:
-
-```rust
-fn total_area(shapes: &[&dyn Shape]) -> f64 {
-    shapes.iter().map(|s| s.area()).sum()
-}
-```
-
-Unlike C++, the vtable pointer is in the reference, not the object. A `Circle` has no embedded vptr; it gains virtual dispatch only when viewed through a `&dyn Shape`.
-
-The trade-off mirrors C++: dynamic dispatch prevents inlining and introduces indirect branch overhead, but produces a single copy of `total_area` regardless of how many shape types exist.
-
-### Comparing Implementations
-
-Consider a function that computes the total area of shapes in a collection, implemented in all three languages.
-
-**C (function pointers):**
-
-```c
-typedef struct Shape Shape;
-typedef double (*area_fn)(const Shape*);
-
-struct Shape {
-    area_fn area;
-    // shape-specific data follows
-};
-
-double total_area(Shape** shapes, size_t n) {
-    double sum = 0;
-    for (size_t i = 0; i < n; i++) {
-        sum += shapes[i]->area(shapes[i]);
-    }
-    return sum;
-}
-```
-
-We embed the vtable in each object as a function pointer. No type safety; we must ensure consistency manually.
-
-**C++ (templates, static):**
-
-```cpp
-template<typename Container>
-double total_area(const Container& shapes) {
-    double sum = 0;
-    for (const auto& s : shapes) {
-        sum += s.area();
-    }
-    return sum;
-}
-```
-
-Monomorphized for each container type. Requires homogeneous collections (all elements the same type within a container).
-
-**C++ (virtual, dynamic):**
-
-```cpp
-double total_area(const std::vector<Shape*>& shapes) {
-    double sum = 0;
-    for (const auto* s : shapes) {
-        sum += s->area();  // virtual call
-    }
-    return sum;
-}
-```
-
-Single copy of the function. Supports heterogeneous collections (different derived types). Each call goes through the vtable.
-
-**Rust (generics, static):**
+The key difference from C++ is where the vtable pointer lives. In C++, the vptr is embedded in the object. A `Circle` contains its own vptr; the `Circle` type is inherently polymorphic. In Rust, the vtable pointer is in the reference, not the object. A plain `Circle` struct has no vptr. The vtable pointer appears only when we view the `Circle` through a trait object:
 
 ```rust
-fn total_area<T: Shape>(shapes: &[T]) -> f64 {
-    shapes.iter().map(|s| s.area()).sum()
-}
+let c = Circle { radius: 1.0 };
+let shape: &dyn Shape = &c;  // wide pointer created here
 ```
 
-Monomorphized for each `T`. Homogeneous collections only.
+The `Circle` struct occupies only the bytes its fields require. The 8-byte vtable pointer is added when we create the `&dyn Shape`, not when we create the `Circle`. An object can be viewed through multiple different trait objects, each with its own vtable, without the object itself containing any vtable pointers.
 
-**Rust (trait objects, dynamic):**
+This design means Rust structs remain trivially copyable (if their fields are) even when they implement traits with virtual methods. In C++, adding a single virtual function to a class makes it non-trivially copyable and increases its size by the vptr. In Rust, implementing a trait never changes a struct's layout.
 
-```rust
-fn total_area(shapes: &[&dyn Shape]) -> f64 {
-    shapes.iter().map(|s| s.area()).sum()
-}
-```
+### Choosing Between Strategies
 
-Single copy. Heterogeneous collections. Each `area()` call is indirect.
+Static dispatch through monomorphization is appropriate when the hot path demands maximum performance, when the set of types is small and known, when inlining across the generic boundary matters, and when compile time and binary size are acceptable costs.
 
-### The Assembly View
+Dynamic dispatch through vtables is appropriate when the concrete type cannot be known until runtime (plugin systems, user-defined types loaded dynamically), when binary size is constrained, when compile time must be minimized, and when the call overhead is negligible compared to the work the method performs.
 
-To make the trade-off concrete, consider a simple operation: incrementing a counter.
-
-**Static dispatch:**
-
-```rust
-trait Counter {
-    fn increment(&mut self);
-}
-
-struct SimpleCounter(u64);
-impl Counter for SimpleCounter {
-    fn increment(&mut self) { self.0 += 1; }
-}
-
-fn inc_static<T: Counter>(c: &mut T) {
-    c.increment();
-}
-```
-
-For `inc_static::<SimpleCounter>`, the compiler generates:
-
-```asm
-inc_static_SimpleCounter:
-    add     qword ptr [rdi], 1
-    ret
-```
-
-The generic function is monomorphized to a single `add` instruction. The method call is inlined entirely.
-
-**Dynamic dispatch:**
-
-```rust
-fn inc_dynamic(c: &mut dyn Counter) {
-    c.increment();
-}
-```
-
-The compiler generates:
-
-```asm
-inc_dynamic:
-    ; rdi = data pointer, rsi = vtable pointer
-    mov     rax, [rsi + 24]    ; load increment from vtable
-    jmp     rax                ; tail call
-```
-
-The function loads the method pointer from the vtable and jumps to it. The actual increment happens in the target function, which cannot be inlined here.
-
-For a single increment, the difference is trivial. In a tight loop incrementing millions of times, the static version avoids the vtable load and indirect branch on every iteration. Whether this matters depends on the surrounding code and how well the branch predictor can anticipate the target.
-
-### Choosing Between Dispatch Strategies
-
-Static dispatch (monomorphization) fits when:
-
-- The hot path requires maximum performance
-- The set of types is small and known
-- Inlining and optimization across the generic boundary matters
-- Compile time and binary size are acceptable costs
-
-Dynamic dispatch (vtables/trait objects) fits when:
-
-- The type is not known until runtime (plugin systems, user-defined types)
-- Binary size is a concern
-- Compile time is a concern
-- The performance difference is negligible for the use case
-
-A common pattern combines both: we use generics in public APIs for flexibility, then internally convert to trait objects to reduce instantiation count:
+There are common patterns that combine both. For example, we can expose a generic public API and then convert to a trait object internally to avoid instantiation explosion:
 
 ```rust
 pub fn process<W: Write>(writer: W) {
@@ -1478,6 +1262,336 @@ fn process_dyn(writer: &mut dyn Write) {
 }
 ```
 
-The public API accepts any `Write` implementor. Internally, we immediately convert to a trait object, so `process_dyn` is compiled only once. The cost is one virtual dispatch per method call within `process_dyn`, but the binary contains only one copy of the implementation.
+The public API accepts any `Write` implementor. Internally, we immediately convert to a trait object. `process_dyn` compiles only once. The cost is one virtual dispatch per method call within `process_dyn`, but the binary contains only one copy of the implementation.
 
-Both C++ and Rust provide both mechanisms because neither dominates the other in all scenarios. The choice depends on the specific requirements: static dispatch for hot paths, dynamic dispatch for flexibility and code size, and hybrid patterns when we need both.
+### Under the Hood
+
+Consider incrementing a counter through both dispatch strategies. Let's start with static dispatch:
+
+```rust
+trait Counter {
+    fn increment(&mut self);
+}
+
+struct Simple(u64);
+impl Counter for Simple {
+    fn increment(&mut self) { self.0 += 1; }
+}
+
+fn inc_static<T: Counter>(c: &mut T) {
+    c.increment();
+}
+```
+
+For `inc_static::<Simple>`, monomorphization produces:
+
+```asm
+inc_static_Simple:
+    add     qword ptr [rdi], 1
+    ret
+```
+
+The entire method call is inlined to a single `add` instruction. The trait abstraction has zero runtime cost.
+
+Now consider dynamic dispatch:
+
+```rust
+fn inc_dynamic(c: &mut dyn Counter) {
+    c.increment();
+}
+```
+
+The compiler generates:
+
+```asm
+inc_dynamic:
+    mov     rax, [rsi + 24]    ; load increment from vtable
+    mov     rdi, rdi           ; data pointer (already in rdi)
+    jmp     rax                ; tail call through vtable
+```
+
+The function loads the method pointer from the vtable and jumps to it. The actual increment happens in the target function, which cannot be inlined here. For a single increment, the difference is trivial. In a tight loop incrementing millions of times, the static version avoids the vtable load and indirect branch on every iteration.
+
+The static version also enables further optimization. If the compiler can prove the counter is never observed between increments, it can batch them. If the counter value is known, it can constant-fold. None of this is possible through the vtable indirection.
+
+## Closures and Captures
+
+We have seen two strategies for polymorphism: monomorphization produces specialized code for each concrete type, while vtables enable a single function to operate on values of unknown type through indirect dispatch. Both mechanisms deal with *code* that varies. But what happens when we need a function that carries *state*?
+
+Consider a sorting function that accepts a comparison predicate. The predicate must know *how* to compare, which is pure code. But suppose we want to sort by distance from some reference point. Now the predicate needs access to the reference point's coordinates, data that exists outside the function itself. The predicate is no longer pure code; it is code plus environment.
+
+This is the closure problem. A closure *closes over* variables from its enclosing scope, capturing them for later use. The three languages approach this problem with characteristic differences. C lacks closures entirely and requires manual workarounds. C++ introduced lambda expressions that desugar to anonymous structs with an overloaded call operator. Rust closures work similarly but integrate with the ownership system, with the `Fn`, `FnMut`, and `FnOnce` traits encoding how the closure interacts with its captured state.
+
+### C: Function Pointers and the Context Pattern
+
+C has function pointers, not closures. A function pointer is an address of executable code; it contains no data beyond the address itself.
+
+```c
+int compare_ints(const void *a, const void *b) {
+    return *(const int*)a - *(const int*)b;
+}
+
+qsort(array, n, sizeof(int), compare_ints);
+```
+
+This works when comparison needs no external state. When it does, C libraries adopt a convention: pass a `void*` context alongside the function pointer, and the callback receives this context as an additional argument.
+
+```c
+struct DistanceContext {
+    double ref_x, ref_y;
+};
+
+int compare_by_distance(const void *a, const void *b, void *ctx) {
+    const struct Point *pa = a;
+    const struct Point *pb = b;
+    const struct DistanceContext *c = ctx;
+    
+    double da = hypot(pa->x - c->ref_x, pa->y - c->ref_y);
+    double db = hypot(pb->x - c->ref_x, pb->y - c->ref_y);
+    return (da > db) - (da < db);
+}
+
+// Usage requires a sorting function that accepts context
+struct DistanceContext ctx = { .ref_x = 0.0, .ref_y = 0.0 };
+qsort_r(points, n, sizeof(struct Point), compare_by_distance, &ctx);
+```
+
+The `qsort_r` variant (POSIX, not standard C) threads the context through to the comparator. The pattern is universal in C callback APIs: a function pointer paired with a `void*` that the library passes back untouched.
+
+The problems are evident. The `void*` erases type information; nothing prevents us from passing a `DistanceContext*` to a callback expecting something else. The compiler cannot verify that the context pointer remains valid when the callback executes. If the callback outlives the context's stack frame, we have a dangling pointer. The burden falls entirely on us.
+
+### C++ Lambdas
+
+C++11 introduced lambda expressions, syntactic sugar for anonymous function objects. A lambda like
+
+```cpp
+auto ref_x = 0.0, ref_y = 0.0;
+auto compare = [ref_x, ref_y](const Point& a, const Point& b) {
+    double da = std::hypot(a.x - ref_x, a.y - ref_y);
+    double db = std::hypot(b.x - ref_x, b.y - ref_y);
+    return da < db;
+};
+```
+
+desugars to something equivalent to
+
+```cpp
+struct __lambda_1 {
+    double ref_x;
+    double ref_y;
+    
+    bool operator()(const Point& a, const Point& b) const {
+        double da = std::hypot(a.x - ref_x, a.y - ref_y);
+        double db = std::hypot(b.x - ref_x, b.y - ref_y);
+        return da < db;
+    }
+};
+
+__lambda_1 compare{ref_x, ref_y};
+```
+
+The capture list specifies what enters the closure and how. `[x]` captures `x` by value (copies it into the struct). `[&x]` captures by reference (the struct holds a reference). `[=]` captures everything used by value. `[&]` captures everything by reference. `[x, &y]` mixes modes.
+
+Each lambda has a unique anonymous type that the programmer cannot name. We must use `auto` for local variables or templates for function parameters:
+
+```cpp
+template<typename F>
+void use_callback(F&& f) {
+    f();
+}
+```
+
+Alternatively, `std::function<R(Args...)>` provides type erasure, wrapping any callable with a matching signature into a uniform type at the cost of heap allocation and virtual dispatch.
+
+The capture mode determines the closure's size. A lambda capturing two `double`s by value occupies 16 bytes (plus alignment). A lambda capturing by reference stores pointers, 8 bytes each on x86-64. A lambda capturing nothing is stateless; the standard guarantees that captureless lambdas can convert to plain function pointers:
+
+```cpp
+int (*fp)(int, int) = [](int a, int b) { return a + b; };
+```
+
+C++ lambdas are mutable by default if they capture by value with `mutable`:
+
+```cpp
+int counter = 0;
+auto increment = [counter]() mutable { return ++counter; };
+// Each call modifies the lambda's internal copy of counter
+```
+
+Without `mutable`, the call operator is `const` and cannot modify captured values. The default reflects the common case where closures are passed to algorithms and called multiple times; mutating captured state would be surprising.
+
+### Rust Closures
+
+Rust closures follow the same structural principle: a closure is an anonymous struct containing captured values, with a method implementing the call. But the details differ in ways that matter for safety.
+
+```rust
+let ref_x = 0.0_f64;
+let ref_y = 0.0_f64;
+let compare = |a: &Point, b: &Point| {
+    let da = ((a.x - ref_x).powi(2) + (a.y - ref_y).powi(2)).sqrt();
+    let db = ((b.x - ref_x).powi(2) + (b.y - ref_y).powi(2)).sqrt();
+    da.partial_cmp(&db).unwrap()
+};
+```
+
+The compiler generates a struct like
+
+```rust
+struct __closure_1<'a> {
+    ref_x: &'a f64,
+    ref_y: &'a f64,
+}
+
+impl<'a> FnOnce<(&Point, &Point)> for __closure_1<'a> {
+    type Output = std::cmp::Ordering;
+    extern "rust-call" fn call_once(self, args: (&Point, &Point)) -> Self::Output {
+        let (a, b) = args;
+        let da = ((a.x - *self.ref_x).powi(2) + (a.y - *self.ref_y).powi(2)).sqrt();
+        let db = ((b.x - *self.ref_x).powi(2) + (b.y - *self.ref_y).powi(2)).sqrt();
+        da.partial_cmp(&db).unwrap()
+    }
+}
+
+impl<'a> FnMut<(&Point, &Point)> for __closure_1<'a> {
+    extern "rust-call" fn call_mut(&mut self, args: (&Point, &Point)) -> Self::Output {
+        self.call_once(args)
+    }
+}
+
+impl<'a> Fn<(&Point, &Point)> for __closure_1<'a> {
+    extern "rust-call" fn call(&self, args: (&Point, &Point)) -> Self::Output {
+        self.call_once(args)
+    }
+}
+```
+
+Unlike C++, Rust does not require explicit capture annotations. The compiler infers the capture mode from how variables are used in the closure body. If we only read a variable, it captures by shared reference. If we mutate it, it captures by mutable reference. If we move out of it or if the variable does not implement `Copy`, it captures by value.
+
+```rust
+let s = String::from("hello");
+
+// Captures s by shared reference (only reads)
+let c1 = || println!("{}", s);
+
+// Captures s by mutable reference (mutates)
+let mut s = String::from("hello");
+let c2 = || s.push_str(" world");
+
+// Captures s by value (moves out)
+let s = String::from("hello");
+let c3 = || drop(s);
+```
+
+The `move` keyword overrides inference, forcing all captures to be by value:
+
+```rust
+let s = String::from("hello");
+let c = move || println!("{}", s);
+// s is no longer accessible here; it was moved into the closure
+```
+
+This is essential when the closure must outlive the scope where it was created, as when spawning a thread:
+
+```rust
+let data = vec![1, 2, 3];
+std::thread::spawn(move || {
+    // data is owned by this closure, transferred to the new thread
+    println!("{:?}", data);
+});
+```
+
+Without `move`, the closure would capture `data` by reference. But `data` lives on the spawning thread's stack, which may be deallocated before the spawned thread runs. The compiler rejects this:
+
+```rust
+let data = vec![1, 2, 3];
+std::thread::spawn(|| {
+    println!("{:?}", data);  // ERROR: closure may outlive borrowed value
+});
+```
+
+The `move` keyword forces ownership transfer, ensuring the closure owns `data` and can safely take it to another thread.
+
+### The Fn Trait Hierarchy
+
+The three traits `Fn`, `FnMut`, and `FnOnce` form a hierarchy that describes how a closure can be called, not how it captures.
+
+`FnOnce` requires ownership of the closure to call it. The method signature is `fn call_once(self, args: Args) -> Output`. After calling a `FnOnce`, the closure is consumed. Every closure implements `FnOnce` because every closure can be called at least once.
+
+`FnMut` requires mutable access to the closure. The signature is `fn call_mut(&mut self, args: Args) -> Output`. A closure implements `FnMut` if calling it does not require consuming any captured values. It may mutate its captures, but it does not move out of them.
+
+`Fn` requires only shared access. The signature is `fn call(&self, args: Args) -> Output`. A closure implements `Fn` if calling it neither consumes nor mutates any captured values.
+
+The hierarchy is `Fn: FnMut: FnOnce`. A closure implementing `Fn` automatically implements `FnMut` and `FnOnce`. The traits encode *what the closure does when called*, not *how it captured* its environment.
+
+This can be tricky if we think in terms of C++ lambdas. For example, a `move` closure can still implement `Fn`:
+
+```rust
+let x = 42;
+let c = move || x;  // captures x by value (copies, since i32: Copy)
+// c implements Fn because calling it only reads the captured x
+```
+
+Conversely, a closure that captures by reference but mutates the referent implements only `FnMut`:
+
+```rust
+let mut counter = 0;
+let mut increment = || { counter += 1; };
+// increment implements FnMut (mutates through captured &mut)
+// does NOT implement Fn
+```
+
+And a closure that moves out of a captured value implements only `FnOnce`:
+
+```rust
+let s = String::from("hello");
+let consume = move || drop(s);
+// consume implements FnOnce only (consumes captured s)
+// does NOT implement FnMut or Fn
+```
+
+Functions accepting closures declare which trait they require. `Iterator::for_each` takes `FnMut` because it calls the closure multiple times but does not need concurrent shared access. `Iterator::map` takes `FnMut` for the same reason. `thread::spawn` takes `FnOnce` because the closure runs exactly once in the spawned thread.
+
+```rust
+fn call_twice<F: FnMut()>(mut f: F) {
+    f();
+    f();
+}
+
+fn call_once<F: FnOnce()>(f: F) {
+    f();
+}
+```
+
+### Closure Traits and Send/Sync
+
+Closures inherit `Send` and `Sync` from their captures. If all captured values are `Send`, the closure is `Send`. If all values captured by shared reference are `Sync`, and all values captured by mutable reference, copy, or move are `Send`, then the closure is `Send`. These rules match normal struct composition.
+
+```rust
+use std::rc::Rc;
+
+let rc = Rc::new(42);
+let closure = move || println!("{}", rc);
+// closure is NOT Send because Rc is not Send
+// std::thread::spawn(closure);  // ERROR
+```
+
+```rust
+use std::sync::Arc;
+
+let arc = Arc::new(42);
+let closure = move || println!("{}", arc);
+// closure IS Send because Arc is Send
+std::thread::spawn(closure);  // OK
+```
+
+A closure is `Clone` or `Copy` if it does not capture by mutable reference and all its captures are `Clone` or `Copy`:
+
+```rust
+let x = 42;
+let closure = move || x;
+// closure is Copy because it captures only Copy types by value
+
+let y = closure;  // copy
+let z = closure;  // still valid
+```
+
+These automatic trait derivations mean closures integrate with Rust's concurrency primitives without special handling. A `move` closure capturing `Arc<Mutex<T>>` is `Send`, can be shipped to another thread, and provides safe interior mutability through the mutex. The type system composes.
