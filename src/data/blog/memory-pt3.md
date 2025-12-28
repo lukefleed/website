@@ -356,14 +356,9 @@ type HashSet<K> = HashMap<K, ()>;
 
 Because `()` is a ZST, `HashMap<K, ()>` stores no value data. The compiler eliminates loads, stores, and allocations for the values. We get a set implementation from a map implementation with no runtime overhead.
 
-The standard library's `HashSet` is *literally* implemented this way:
+The standard library's `HashSet` is implemented exactly this way:
 
 ```rust
-pub struct HashSet<T, S = RandomState> {
-    base: base::HashSet<T, S>,
-}
-
-// where base::HashSet is:
 pub struct HashSet<T, S> {
     map: HashMap<T, (), S>,
 }
@@ -383,37 +378,49 @@ enum Void {}
 
 An enum with no variants has no valid values. We cannot construct a `Void` because there is no variant to construct. The type exists at the type level but can never exist at the value level.
 
-This might seem useless, but it enables type-level reasoning about impossibility. Consider a function that parses input and might fail:
+This enables type-level reasoning about impossibility. Consider a trait for data sources that might fail:
 
 ```rust
-fn parse(input: &str) -> Result<Data, ParseError> { /* ... */ }
-```
-
-Now consider a function that validates already-parsed data. The validation cannot fail because the data has already been parsed:
-
-```rust
-fn validate(data: &Data) -> Result<(), Void> {
-    // validation logic that always succeeds
-    Ok(())
+trait DataSource {
+    type Error;
+    fn fetch(&self) -> Result<Data, Self::Error>;
 }
 ```
 
-The return type `Result<(), Void>` communicates that the `Err` variant is impossible. The compiler knows this. When we pattern match on the result, we do not need to handle `Err`:
+Most implementations have a meaningful error type: network sources fail with I/O errors, parsers fail with syntax errors. But some sources are infallible. An in-memory cache cannot fail to read its own contents:
 
 ```rust
-let Ok(()) = validate(&data);  // irrefutable pattern, no Err case needed
+enum Infallible {}
+
+struct MemoryCache { data: Data }
+
+impl DataSource for MemoryCache {
+    type Error = Infallible;
+    fn fetch(&self) -> Result<Data, Infallible> {
+        Ok(self.data.clone())
+    }
+}
 ```
 
-The compiler optimizes based on this knowledge. `Result<T, Void>` has the same layout as `T` because the `Err` variant cannot exist and requires no discriminant. The representation is identical:
+The `Error = Infallible` communicates at the type level that `fetch` cannot return `Err`. Callers can use an irrefutable pattern:
+
+```rust
+fn use_cache(cache: &MemoryCache) {
+    let Ok(data) = cache.fetch();  // no Err case to handle
+    process(data);
+}
+```
+
+The compiler optimizes based on this knowledge. `Result<T, Infallible>` has the same layout as `T` because the `Err` variant cannot exist and requires no discriminant:
 
 ```rust
 use std::mem::size_of;
+use std::convert::Infallible;
 
-enum Void {}
-
-assert_eq!(size_of::<Result<u64, Void>>(), 8);  // same as u64
-assert_eq!(size_of::<u64>(), 8);
+assert_eq!(size_of::<Result<u64, Infallible>>(), 8);  // same as u64
 ```
+
+The standard library provides `std::convert::Infallible` for this purpose. It is defined as an empty enum and used throughout the standard library to indicate operations that cannot fail.
 
 Raw pointers to empty types are valid to construct but dereferencing them is undefined behavior. There is no value to read, so the dereference cannot produce a valid result. This makes empty types unsuitable for representing C's `void*`. The recommended approach for opaque C pointers is `*const ()` or a newtype wrapper around it, which can be safely dereferenced to read zero bytes.
 
@@ -677,25 +684,57 @@ When the predictor guesses wrong, the pipeline must be flushed and restarted fro
 
 The vtable itself must be in cache for the lookup to be fast. A vtable is small (typically 32-64 bytes for a trait with a few methods), but if we iterate over a heterogeneous collection of trait objects, each object may point to a different vtable. With many distinct implementations, the vtables compete for cache space. The first access to each vtable is a cache miss, adding 100+ cycles of memory latency.
 
-Inlining is the most significant loss. When the compiler inlines a function, it can see both caller and callee code simultaneously. This enables constant propagation, dead code elimination, loop fusion, and SIMD vectorization across the boundary. None of this is possible through a vtable. The compiler cannot see through the indirection at compile time, so each call is an optimization barrier.
+Inlining is the most significant loss. When the compiler inlines a function, it can see both caller and callee code simultaneously. This enables constant propagation, dead code elimination, loop fusion, and SIMD vectorization across the boundary. In the general case, none of this is possible through a vtable, the compiler cannot see through the indirection, so each call becomes an optimization barrier.
 
-Consider a loop summing areas:
+In C++, modern compilers can sometimes *devirtualize* virtual calls. If the concrete type is visible at the call site (immediately after construction, or when the class is marked `final`), Clang/GCC may replace the indirect call with a direct one. With LTO and `-fwhole-program-vtables`, C++ compilers can devirtualize when only one implementation exists program-wide.
+
+Rust's situation is less favorable. As of 2024, rustc does not provide the metadata LLVM needs for whole-program devirtualization. Even when only a single type implements a trait in the entire binary, trait object calls remain indirect. LLVM can devirtualize in trivial cases where the concrete type is immediately visible (creating a trait object and calling a method in the same basic block), but this is rare in practice. The tracking issue rust-lang/rust#68262 has seen little progress. For now, if you need devirtualization in Rust, use generics or enums, the compiler will not rescue trait objects for you.
+
+Consider a loop summing areas. Here we must be careful: the static and dynamic versions solve *different* problems.
 
 ```rust
-// Static dispatch: the compiler can inline, vectorize, and unroll
+// Static dispatch: all elements must be the same concrete type
 fn sum_areas_static<T: Drawable>(shapes: &[T]) -> f64 {
     shapes.iter().map(|s| s.area()).sum()
 }
 
-// Dynamic dispatch: each area() call goes through vtable
+// Dynamic dispatch: elements can be different concrete types
 fn sum_areas_dynamic(shapes: &[&dyn Drawable]) -> f64 {
     shapes.iter().map(|s| s.area()).sum()
 }
 ```
 
-With static dispatch, if `T` is `Circle` and `area()` is a simple computation, the compiler can inline the entire loop body, unroll the loop, and potentially vectorize with SIMD. With dynamic dispatch, each `area()` call is a function pointer load, an indirect call, and a return. The loop cannot be vectorized because the compiler cannot prove anything about what `area()` does.
+The static version requires a homogeneous slice, all `Circle`s or all `Rectangle`s, never mixed. The dynamic version accepts heterogeneous collections. These are not interchangeable; we choose based on whether we need polymorphism over a closed or open set of types.
 
-The rule of thumb: use generics with trait bounds for performance-critical code paths. Reserve trait objects for heterogeneous collections where the flexibility is worth the cost, or for reducing compile times and binary size when performance is not critical.
+For the homogeneous case, the compiler can inline the entire loop body, unroll the loop, and potentially vectorize with SIMD. For the heterogeneous case, each `area()` call is a function pointer load, an indirect call, and a return. The loop cannot be vectorized because the compiler cannot prove anything about what `area()` does.
+
+When the set of types is closed and known at compile time, Rust offers a third approach that combines the benefits of both: enum dispatch.
+
+```rust
+enum Shape {
+    Circle(Circle),
+    Rectangle(Rectangle),
+}
+
+impl Shape {
+    fn area(&self) -> f64 {
+        match self {
+            Shape::Circle(c) => c.area(),
+            Shape::Rectangle(r) => r.area(),
+        }
+    }
+}
+
+fn sum_areas_enum(shapes: &[Shape]) -> f64 {
+    shapes.iter().map(|s| s.area()).sum()
+}
+```
+
+The enum approach accepts a heterogeneous collection (circles and rectangles mixed), but the dispatch is a compile-time match expression rather than a vtable lookup. The compiler can inline each branch, and modern CPUs predict `match` arms more reliably than indirect calls. The slice is homogeneous at the type level (`&[Shape]`), so it is cache-friendly, no pointer chasing, no scattered vtables.
+
+The trade-off is extensibility. Adding a new shape to an enum requires modifying the enum definition and every `match`. With trait objects, new types can implement the trait without touching existing code. Enums are closed; traits are open.
+
+The rule of thumb is to use generics with trait bounds for performance-critical code paths where all elements share a concrete type. Use enums when the type set is closed and we need heterogeneous collections with predictable dispatch. Reserve trait objects for open extensibility where the flexibility is worth the cost, or for reducing compile times and binary size when performance is not critical.
 
 ### The Vtable Location Trade-off
 
