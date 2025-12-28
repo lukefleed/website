@@ -679,6 +679,306 @@ Linear types would break this assumption. If a value must be explicitly consumed
 
 Rust chose affine types, accepting that the compiler cannot enforce explicit consumption but gaining a simpler model where any value can be dropped. The `#[must_use]` attribute provides a weaker guarantee: a warning (not an error) if a value is unused. It catches some mistakes but does not provide the hard guarantee that linear types would.
 
+## When Things Go Wrong
+
+RAII ensures that cleanup happens when scope ends. But it says nothing about how we *signal* failures. When a function cannot complete its task, it must communicate this to the caller, and the caller must have a chance to respond. The three languages take fundamentally different approaches to this problem, and those differences interact with resource management in ways that shape what code we can write.
+
+### C: Error Codes and the Propagation Problem
+
+C functions signal errors through their return values. The convention varies by function: `fopen` returns a null pointer on failure, `printf` returns a negative value, `pthread_create` returns a nonzero error code. The caller must check the return value and act accordingly.
+
+```c
+FILE *f = fopen("data.txt", "r");
+if (!f) {
+    perror("fopen");
+    return -1;
+}
+```
+
+The `errno` mechanism provides additional context. When certain functions fail, they set the global (or thread-local, since C11) `errno` variable to an error code. The `perror` function reads `errno` and prints a human-readable message. But `errno` is fragile: it must be checked immediately after the failing call, before any other function has a chance to overwrite it.
+
+The problem is propagation. Consider a function that performs multiple fallible operations:
+
+```c
+int process_file(const char *path) {
+    FILE *f = fopen(path, "r");
+    if (!f) return -1;
+    
+    char *buf = malloc(4096);
+    if (!buf) {
+        fclose(f);
+        return -1;
+    }
+    
+    if (fread(buf, 1, 4096, f) == 0 && ferror(f)) {
+        free(buf);
+        fclose(f);
+        return -1;
+    }
+    
+    // ... process buf ...
+    
+    free(buf);
+    fclose(f);
+    return 0;
+}
+```
+
+Every error path must manually release all previously acquired resources. The cleanup logic is duplicated at each exit point. As functions grow more complex, the cleanup paths multiply. Miss one and we leak. The `goto cleanup` pattern consolidates the release logic:
+
+```c
+int process_file(const char *path) {
+    int result = -1;
+    FILE *f = NULL;
+    char *buf = NULL;
+    
+    f = fopen(path, "r");
+    if (!f) goto cleanup;
+    
+    buf = malloc(4096);
+    if (!buf) goto cleanup;
+    
+    if (fread(buf, 1, 4096, f) == 0 && ferror(f)) goto cleanup;
+    
+    // ... process buf ...
+    result = 0;
+    
+cleanup:
+    free(buf);    // free(NULL) is safe
+    if (f) fclose(f);
+    return result;
+}
+```
+
+This works, but it requires careful initialization of all resources to `NULL` and awareness of which cleanup functions tolerate null arguments. The control flow is nonlocal. The approach scales poorly to nested function calls: if `process_file` calls another fallible function, that function's errors must be translated and propagated manually.
+
+The deeper issue is that error information is limited. An `int` return code can distinguish success from failure, but it cannot carry rich error context. We might know that `fopen` failed, but not whether it was due to permission denied, file not found, or disk full. The `errno` mechanism helps, but only for system calls. Application-level errors must invent their own conventions.
+
+### C++: Exceptions and Stack Unwinding
+
+C++ introduced exceptions to address the propagation problem. When a function cannot fulfill its contract, it throws an exception. Control transfers immediately to the nearest matching `catch` block, skipping all intermediate code. The exception object carries type information and error details.
+
+```cpp
+std::string read_file(const std::string& path) {
+    std::ifstream f(path);
+    if (!f) {
+        throw std::runtime_error("Cannot open file: " + path);
+    }
+    std::stringstream buf;
+    buf << f.rdbuf();
+    return buf.str();
+}
+```
+
+The caller can catch the exception or let it propagate further:
+
+```cpp
+void process() {
+    try {
+        auto content = read_file("data.txt");
+        // ... use content ...
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << '\n';
+    }
+}
+```
+
+The power of exceptions is that they interact with RAII. When an exception propagates through a scope, the compiler calls destructors for all local objects in reverse order of construction. This is *stack unwinding*. Resources managed by RAII wrappers are released automatically, even on error paths.
+
+```cpp
+void safe_operation() {
+    auto resource = std::make_unique<ExpensiveThing>();
+    might_throw();  // if this throws...
+    // ... resource is still destroyed
+}
+```
+
+The `might_throw` function can throw, and `resource` will be destroyed during unwinding. We did not write cleanup code; the compiler inserted it.
+
+But this guarantee has costs. The compiler must generate *unwind tables* that describe, for every instruction, which objects are alive and how to destroy them. On x86-64 with the Itanium ABI, these tables are stored in the `.eh_frame` section. They add binary size (typically 10-20% for code with many local objects) and must be consulted during unwinding. The unwinding process itself walks the stack frame by frame, consulting these tables and invoking destructors.
+
+Modern implementations use *zero-cost exceptions* in the non-throwing case: if no exception is thrown, there is no runtime overhead. The tables exist but are never consulted. The cost is paid only when throwing. On GCC and Clang targeting x86-64, throwing an exception and unwinding through a few stack frames can cost thousands of cycles; the exact cost depends on the depth of the stack and the complexity of the destructors. The implementation uses `libunwind` or similar libraries to parse the exception tables and locate catch handlers.
+
+This trade-off is reasonable when exceptions are exceptional. If errors are rare, we avoid the overhead on the common path. If errors are frequent, the unwinding cost dominates. The rule of thumb is that exceptions should represent genuine failures, not routine control flow.
+
+C++ provides vocabulary for reasoning about exception behavior. A function is *nothrow* if it never throws. Destructors are implicitly `noexcept` since C++11, meaning they cannot throw (and if they do, `std::terminate` is called). This if very important! If a destructor throws during stack unwinding from another exception, the program terminates. Unwinding cannot nest.
+
+The *exception safety guarantees* classify how functions behave when exceptions occur. The *basic guarantee* promises that if an exception is thrown, the program remains in a valid state with no resource leaks. The *strong guarantee* promises that if an exception is thrown, the operation has no effect; the state is rolled back to what it was before the call. The *nothrow guarantee* promises that no exceptions are thrown. Move constructors and swap functions must be nothrow to enable efficient strong-guarantee implementations of operations like `std::vector::push_back`.
+
+Consider `std::vector::push_back`. When the vector is full and must reallocate, it creates a new buffer and must transfer elements from the old buffer to the new one. If element transfer is nothrow (move is `noexcept`), the vector moves elements. If a move might throw, the vector copies instead, preserving the strong guarantee: if copying the Nth element throws, the original vector is unchanged. This is why `noexcept` on move constructors matters for performance.
+
+```cpp
+class Widget {
+public:
+    Widget(Widget&&) noexcept;  // enables efficient vector growth
+    // ...
+};
+```
+
+Without `noexcept`, `std::vector<Widget>::push_back` may copy instead of move, which can be dramatically slower for types with expensive copies.
+
+### Rust: Errors in the Type System
+
+Rust chose a different path: errors are *values*, not control flow. Operations that can fail return `Result<T, E>`, where `T` is the success type and `E` is the error type. The caller must explicitly handle both cases.
+
+```rust
+fn read_file(path: &str) -> Result<String, std::io::Error> {
+    let mut f = std::fs::File::open(path)?;
+    let mut contents = String::new();
+    f.read_to_string(&mut contents)?;
+    Ok(contents)
+}
+```
+
+The `?` operator is syntactic sugar for early return on error. When applied to a `Result`, it unwraps the `Ok` value or returns the `Err` from the enclosing function. The expansion of `expr?` is approximately:
+
+```rust
+match expr {
+    Ok(val) => val,
+    Err(e) => return Err(e.into()),
+}
+```
+
+The `.into()` call enables automatic error type conversion through the `From` trait. A function returning `Result<T, MyError>` can use `?` on any `Result` whose error type implements `Into<MyError>`.
+
+Because `Result` is a normal type, the compiler enforces handling. An unused `Result` triggers a warning (the type is marked `#[must_use]`). Forgetting to check an error is visible in the code; the value sits there, unused. This contrasts with C, where an unchecked return value is silent.
+
+The `?` operator also works on `Option<T>`, extracting the `Some` value or returning `None` from the enclosing function. This unifies absent-value handling with error handling syntactically, though the two remain distinct types. We cannot mix them without explicit conversion: `result.ok()` converts `Result<T, E>` to `Option<T>`, discarding the error; `option.ok_or(err)` converts `Option<T>` to `Result<T, E>`, supplying an error for the `None` case.
+
+The trade-off is verbosity. Every fallible call requires `?` or explicit matching. The `?` operator keeps the happy path readable, but error handling is always syntactically present. 
+
+### Bridging Result and Panic
+
+The `Result` type provides methods that convert recoverable errors into panics when we decide recovery is inappropriate. The `unwrap` method extracts the success value or panics on error:
+
+```rust
+let file = File::open("config.txt").unwrap();  // panics if file doesn't exist
+```
+
+The `expect` method does the same but accepts a custom panic message:
+
+```rust
+let file = File::open("config.txt")
+    .expect("config.txt must exist for the application to run");
+```
+
+In prototyping, `unwrap` is expedient. In production, `expect` documents the assumption being made. Neither propagates errors; both terminate the thread if the assumption fails.
+
+Let's look at how `unwrap` is implemented:
+
+```rust
+impl<T, E: fmt::Debug> Result<T, E> {
+    pub fn unwrap(self) -> T {
+        match self {
+            Ok(val) => val,
+            Err(e) => panic!("called `Result::unwrap()` on an `Err` value: {:?}", e),
+        }
+    }
+}
+```
+
+The `Ok` arm returns `T`. The `Err` arm calls `panic!`, which has return type `!`, the *never type*. A value of type `!` can never exist; expressions that produce `!` never complete normally. The `panic!` macro, infinite loops, and `std::process::exit` all have type `!`. Because `!` can coerce to any type, the match arms are compatible: one returns `T`, the other diverges. The compiler accepts this because the `Err` arm will never actually produce a value to return.
+
+### Panics and Unwinding
+
+Rust also has panics, which behave more like exceptions. A panic unwinds the stack (by default), calling destructors along the way. Panics are intended for unrecoverable errors: violated invariants, out-of-bounds access, explicit `panic!()` calls. Unlike `Result`, panics are not expected to be caught. The `catch_unwind` function can intercept a panic, but it is intended for FFI boundaries and thread isolation, not routine error handling.
+
+```rust
+use std::panic;
+
+let result = panic::catch_unwind(|| {
+    panic!("something went wrong");
+});
+assert!(result.is_err());
+```
+
+The unwinding mechanism is similar to C++ exceptions in implementation. Rust uses the same platform unwinding libraries (`libunwind` on Unix, structured exception handling on Windows). The `.eh_frame` tables are generated for functions that might unwind. The cost structure is the same: zero overhead when not panicking, substantial overhead when panicking.
+
+Unlike C++ exceptions, Rust panics cannot cross FFI boundaries safely. A panic that reaches an `extern "C"` function boundary is undefined behavior. The panic must be caught before the boundary, or the function must be marked `extern "C-unwind"` (unstable as of 2025) to permit unwinding through foreign frames. Compiling with `panic=abort` eliminates unwinding entirely; panics immediately terminate the process.
+
+The distinction between `Result` and panic corresponds to recoverable versus unrecoverable errors. A file not found is recoverable: the caller can try a different path, prompt the user, or report the error and continue. An index out of bounds is a bug: the program's assumptions are violated, and continuing risks further corruption. Recoverable errors return `Result`. Unrecoverable errors panic.
+
+This separation has consequences for API design. Functions document their failure modes through their return types. A function returning `Result<T, E>` declares that it can fail with `E`, and the caller must handle that possibility. A function returning `T` declares that it succeeds or panics. The types communicate intent.
+
+### Exception Safety Without Exceptions
+
+Rust's `Result`-based error handling achieves exception safety without exceptions. The key is that `?` returns from the current function, not from an arbitrary point up the call stack. RAII objects in the current function are dropped normally when the function returns. There is no unwinding path that differs from the normal return path.
+
+Consider the Rust equivalent of our earlier C++ example:
+
+```rust
+fn safe_operation() -> Result<(), Error> {
+    let resource = ExpensiveThing::new();
+    might_fail()?;  // if this returns Err...
+    Ok(())
+}   // ... resource is dropped here either way
+```
+
+If `might_fail()` returns `Err`, the `?` causes `safe_operation` to return early. Before returning, Rust drops `resource`. The drop happens because we are returning from the function, not because we are unwinding an exception. The compiler generates the same cleanup code it would for a normal return.
+
+This means Rust code achieves the basic exception safety guarantee automatically: if a function returns early via `?`, all local resources are released. The strong guarantee requires the same care as in C++; if we modify state before an operation that might fail, we must be prepared to roll back. But the reasoning is simpler because there is no hidden control flow. Every error return is marked with `?` or explicit `match`.
+
+The cost is also simpler to reason about. A `?` that triggers an early return executes the same code as a normal return: stack unwinding does not occur (unless a `Drop` implementation panics, which should not happen for correct code). The early return constructs an `Err` variant, which is a small value copy. There are no exception tables to consult, no frame-by-frame unwinding, no library calls. The overhead is one branch and a few instructions.
+
+This is why Rust's error handling is considered zero-cost in a way that C++ exceptions are not. Both are zero-cost on the success path. But on the error path, Rust returns a value while C++ invokes the unwinding machinery.
+
+### Panic Safety in Unsafe Code
+
+In unsafe code, panic safety requires additional care. Safe Rust cannot violate memory safety through panics; the type system ensures that all values are valid and all drops are safe. But unsafe code can create intermediate states that violate invariants, and if a panic occurs in that window, the invariants remain violated when destructors run.
+
+Consider a function that extends a vector by cloning elements from a slice:
+
+```rust
+impl<T: Clone> Vec<T> {
+    unsafe fn extend_from_slice_unsafe(&mut self, to_push: &[T]) {
+        self.reserve(to_push.len());
+        let old_len = self.len();
+        
+        // DANGER: length updated before elements are initialized
+        self.set_len(old_len + to_push.len());
+        
+        for (i, x) in to_push.iter().enumerate() {
+            // clone() might panic!
+            self.as_mut_ptr().add(old_len + i).write(x.clone());
+        }
+    }
+}
+```
+
+If `clone()` panics after `set_len` has increased the length, the vector's length claims more initialized elements than actually exist. When the vector drops, it will call `drop` on uninitialized memory, which is undefined behavior.
+
+The fix is to maintain the invariant across the panic point. One approach is to update the length *after* each successful initialization.
+
+```rust
+impl<T: Clone> Vec<T> {
+    fn extend_from_slice_safe(&mut self, to_push: &[T]) {
+        self.reserve(to_push.len());
+        for x in to_push {
+            self.push(x.clone());  // push updates len after write
+        }
+    }
+}
+```
+
+Another approach uses a guard that restores invariants if dropped during a panic:
+
+```rust
+struct SetLenOnDrop<'a, T> {
+    vec: &'a mut Vec<T>,
+    len: usize,
+}
+
+impl<T> Drop for SetLenOnDrop<'_, T> {
+    fn drop(&mut self) {
+        unsafe { self.vec.set_len(self.len); }
+    }
+}
+```
+
+The guard tracks how many elements have been successfully written. If a panic occurs, the guard's destructor sets the vector's length to the number of initialized elements, maintaining the invariant. If no panic occurs, we update the guard's `len` field as we go and let it set the final length on drop.
+
+Safe Rust cannot violate memory safety through panics, but unsafe code must explicitly maintain invariants across potential unwind points. Every call to a function that might panic (and in generic code, almost any operation on a type parameter might panic) is a potential unwind point. The rule is: never let a panic observe an invalid state.
+
 
 ## Move Semantics
 
