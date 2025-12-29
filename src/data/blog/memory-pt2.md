@@ -1,14 +1,14 @@
 ---
 author: Luca Lombardo
-pubDatetime: 2025-12-23T00:00:00.000Z
-title: "Who Owns the Memory? Part 2: Ownership, RAII, and move semantics"
+pubDatetime: 2025-12-24T00:00:00.000Z
+title: "Who Owns the Memory? Part 2: Who Calls Free?"
 slug: who-owns-the-memory-pt2
 featured: false
 draft: false
 tags:
   - Rust
   - Programming
-description: "How C, C++, and Rust decide who calls free"
+description: "Destructors, RAII, and the ownership question."
 ---
 
 In the [first part](https://lukefleed.xyz/posts/who-owns-the-memory-pt1/) of this series, we saw that objects occupy storage, that storage has duration, and that the type system imposes structure on raw bytes. But we have sidestepped a question that dominates systems programming in practice: when heap-allocated memory must be released, who bears responsibility for releasing it?

@@ -1,14 +1,14 @@
 ---
 author: Luca Lombardo
 pubDatetime: 2025-12-20T00:00:00.000Z
-title: "Who Owns the Memory? Part 1: Objects"
+title: "Who Owns the Memory? Part 1: What is an Object?"
 slug: who-owns-the-memory-pt1
 featured: false
 draft: false
 tags:
   - Rust
   - Programming
-description: "From hardware to aliasing rules: understanding how C, C++, and Rust map types to memory."
+description: "Effective types, storage duration, and aliasing rules in C, C++, and Rust."
 ---
 
 
