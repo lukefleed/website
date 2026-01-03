@@ -12,7 +12,7 @@ description: "Effective types, storage duration, and aliasing rules in C, C++, a
 ---
 
 
-This is the first article in a $n$-part series exploring how C, C++, and Rust manage memory at a low level. We begin where the hardware does: with bytes. From there, we build up to objects, storage duration, lifetime, and aliasing, the vocabulary required to understand ownership. 
+This is the first article in a $n$-part series exploring how C, C++, and Rust manage memory at a low level. We begin where the hardware does: with bytes. From there, we build up to objects, storage duration, lifetime, and aliasing, the vocabulary required to understand ownership.
 
 ## Table of contents
 
@@ -27,10 +27,7 @@ The machinery we build atop this substrate, effective types in C, object lifetim
 
 Modern operating systems do not give processes direct access to physical RAM. Instead, each process operates within its own virtual address space, a fiction maintained by the MMU (Memory Management Unit) that maps virtual addresses to physical frames. The C standard captures this abstraction explicitly: pointers in C reference virtual memory, and the language makes no guarantees about physical layout.
 
-This abstraction buys us two properties:
-
-1. **Isolation**: A pointer in process A cannot reference memory in process B. Dereferencing an unmapped address triggers a page fault, typically terminating the process. This is crucial for process-level security, a compromised or buggy process cannot read credentials from our browser or corrupt our kernel's data structures.
-2. **Portability**: Code does not need to know the physical memory topology of the machine it runs on.
+This abstraction buys us two properties. First, *isolation*: a pointer in process A cannot reference memory in process B. Dereferencing an unmapped address triggers a page fault, typically terminating the process. This is crucial for process-level security, since a compromised or buggy process cannot read credentials from our browser or corrupt our kernel's data structures. Second, *portability*: code does not need to know the physical memory topology of the machine it runs on.
 
 From our perspective, virtual memory means that the addresses we work with are translated by hardware before reaching DRAM. This translation has performance implications. TLB misses are expensive, but the abstraction holds: we operate on a contiguous address space that the OS manages for us.
 
@@ -92,7 +89,7 @@ struct Good {
 };
 ```
 
-`sizeof(struct Bad)` is 24 bytes. `sizeof(struct Good)` is 16 bytes. the compiler cannot reorder fields in C (the standard guarantees fields appear in declaration order with increasing addresses), so the programmer must consider layout.
+`sizeof(struct Bad)` is 24 bytes. `sizeof(struct Good)` is 16 bytes. The compiler cannot reorder fields in C (the standard guarantees fields appear in declaration order with increasing addresses), so we must consider layout ourselves.
 
 ![](/memory/fig1.png)
 <p align="center"><em>Yes, it's made with Gemini. I'm not good with Figma.</em></p>
@@ -113,13 +110,9 @@ When we call `malloc(n)`, we do not receive exactly `n` bytes of usable memory. 
 
 The `size` field stores the chunk size with three flag bits: `P` (previous chunk in use), `M` (chunk obtained via `mmap`), and `A` (non-main arena). The actual usable size is `size & ~0x7`.
 
-This means:
+This has several implications. Every allocation has overhead, and small allocations suffer proportionally more: a 16-byte allocation requires at least 32 bytes of actual memory (16 bytes data + 16 bytes metadata, depending on the allocator). The allocator also imposes its own alignment; `malloc` guarantees alignment suitable for any primitive type (`max_align_t`), which is 16 bytes on most 64-bit platforms. Finally, memory is not truly *free* after `free()`. The allocator tracks allocated regions, and `free()` does not necessarily return memory to the OS. It typically returns it to a free list for reuse.
 
-1. Every allocation has overhead. Small allocations suffer proportionally more: a 16-byte allocation requires at least 32 bytes of actual memory (16 bytes data + 16 bytes metadata, depending on the allocator).
-2. The allocator imposes its own alignment. `malloc` guarantees alignment suitable for any primitive type (`max_align_t`), which is 16 bytes on most 64-bit platforms.
-3. Memory is not _free_. The allocator tracks allocated regions, and `free()` does not necessarily return memory to the OS, it typically returns it to a free list for reuse.
-
-When we discuss ownership and resource management in later sections, keep this in mind: _deallocating memory_ at the language level means returning bytes to the allocator. The allocator decides when (if ever) to return pages to the operating system.
+When we discuss ownership and resource management in later sections, keep this in mind: *deallocating memory* at the language level means returning bytes to the allocator. The allocator decides when (if ever) to return pages to the operating system.
 
 ### Objects Are Bytes
 
@@ -137,7 +130,7 @@ This is the object representation, the actual bytes in memory. The semantic inte
 
 Rust and C++ inherit this model. When we say a Rust `i32` occupies 4 bytes with alignment 4, we mean exactly what C means: 4 contiguous bytes at an address divisible by 4. The type systems differ dramatically in what operations they permit on those bytes, but the physical representation is identical.
 
-This is the starting point. We have bytes in a virtual address space, aligned for hardware access, managed by an allocator. Everything that follows, effective types, ownership, lifetimes—is a layer of abstraction over this physical reality.
+This is the starting point. We have bytes in a virtual address space, aligned for hardware access, managed by an allocator. Everything that follows (effective types, ownership, lifetimes) is a layer of abstraction over this physical reality.
 
 ## From Bytes to Objects
 
@@ -199,16 +192,7 @@ The effective type machinery exists purely for optimization. The compiler uses i
 
 C++ inherits C's effective type rules but adds a distinct concept: *object lifetime*. An object's lifetime is the interval during which accessing the object is well-defined.
 
-The C++ standard (N4950, §6.7.3) specifies the boundaries precisely. For an object of type `T`:
-
-> The lifetime of an object of type T begins when:
-> (1.1) storage with the proper alignment and size for type T is obtained, and
-> (1.2) its initialization (if any) is complete
-
-> The lifetime of an object of type T ends when:
-> (1.3) if T is a non-class type, the object is destroyed, or
-> (1.4) if T is a class type, the destructor call starts, or
-> (1.5) the storage which the object occupies is released, or is reused by an object that is not nested within o.
+The C++ standard specifies the boundaries precisely. For an object of type `T`, lifetime begins when storage with proper alignment and size is obtained and initialization (if any) is complete. Lifetime ends when the destructor call starts (for class types) or when the object is destroyed (for non-class types), or when the storage is released or reused.
 
 Consider placement new:
 
@@ -267,9 +251,7 @@ let s: Status = unsafe { std::mem::transmute(2u8) };  // UB: invalid discriminan
 let n: ! = unsafe { std::mem::zeroed() };  // UB
 ```
 
-The moment an invalid value is *produced*, undefined behavior has occurred. From the Rust Reference:
-
-> The Rust compiler assumes that all values produced during program execution are valid, and producing an invalid value is hence immediate UB.
+The moment an invalid value is *produced*, undefined behavior has occurred. The Rust compiler assumes that all values produced during program execution are valid; producing an invalid value is therefore immediate UB.
 
 In C, you can have an `int` variable containing any 32-bit pattern, and as long as you do not read it in certain ways, no UB occurs. In Rust, if a `bool` contains the bit pattern `0x02`, UB has already happened at the point of creation, regardless of whether you subsequently read it.
 
@@ -299,7 +281,7 @@ if !ptr.is_null() && ptr.is_aligned() {
 
 All three languages distinguish between an object's *representation* (its bytes in memory) and its *value* (the semantic interpretation of those bytes). But they draw the line differently, and understanding where each language draws it determines what low-level manipulations are sound.
 
-Every object occupies a contiguous sequence of bytes. The *size* of a type is how many bytes; the *alignment* constrains where those bytes can start. A type with alignment 8 must be stored at an address divisible by 8. These are not arbitrary constraints—they reflect how the memory bus fetches data, as we saw in the alignment section.
+Every object occupies a contiguous sequence of bytes. The *size* of a type is how many bytes; the *alignment* constrains where those bytes can start. A type with alignment 8 must be stored at an address divisible by 8. These constraints reflect how the memory bus fetches data, as we saw in the alignment section.
 
 In C, we can freely inspect any object as `unsigned char[]`:
 
@@ -309,7 +291,7 @@ unsigned char *bytes = (unsigned char *)&d;
 // bytes[0..7] contain the IEEE 754 representation
 ```
 
-The bytes are the representation. The value is what those bytes mean according to IEEE 754. C permits examining bytes without caring about their semantic meaning. C++ inherits this but adds constraints around object lifetime—we can inspect the bytes of a live object, but accessing bytes after the destructor has run is undefined, even if the storage has not been reused.
+The bytes are the representation. The value is what those bytes mean according to IEEE 754. C permits examining bytes without caring about their semantic meaning. C++ inherits this but adds constraints around object lifetime: we can inspect the bytes of a live object, but accessing bytes after the destructor has run is undefined, even if the storage has not been reused.
 
 Rust permits byte-level inspection through raw pointers and transmutation, but imposes validity constraints that C and C++ do not:
 
@@ -323,9 +305,9 @@ let bytes: [u8; 1] = [2];
 let b: bool = unsafe { std::mem::transmute(bytes) };  // UB: 2 is not a valid bool
 ```
 
-The asymmetry mirrors C's effective type rule. Converting a typed value to bytes is generally safe. Converting bytes to a typed value requires that the bytes constitute a valid value of that type—and Rust's validity invariants, as we saw earlier, are stricter than C's.
+The asymmetry mirrors C's effective type rule. Converting a typed value to bytes is generally safe. Converting bytes to a typed value requires that the bytes constitute a valid value of that type, and Rust's validity invariants, as we saw earlier, are stricter than C's.
 
-This distinction matters when we consider struct layout. C guarantees fields appear in declaration order; the compiler inserts padding but cannot reorder. C++ inherits this for standard-layout types. Rust makes minimal guarantees by default—the `repr(Rust)` layout allows the compiler to reorder fields to minimize padding. Consider:
+This distinction matters when we consider struct layout. C guarantees fields appear in declaration order; the compiler inserts padding but cannot reorder. C++ inherits this for standard-layout types. Rust makes minimal guarantees by default: the `repr(Rust)` layout allows the compiler to reorder fields to minimize padding. Consider:
 
 ```rust
 struct A {
@@ -337,9 +319,9 @@ struct A {
 
 Rust might lay this out as `(b, c, a, padding)` to achieve size 8 instead of the naive 12. Different generic instantiations of the same struct may have different layouts. For interoperability with C, Rust provides `#[repr(C)]`, which guarantees C-compatible layout: fields in declaration order, padding computed by the standard algorithm.
 
-The layout algorithm for `repr(C)` is deterministic. Start with offset 0. For each field in declaration order: add padding until the offset is a multiple of the field's alignment, record the field's offset, advance by the field's size. Finally, round the struct's total size up to its alignment. This is exactly how our `struct Bad` ended up at 24 bytes while `struct Good` achieved 16—the algorithm is mechanical, but field ordering is the programmer's responsibility.
+The layout algorithm for `repr(C)` is deterministic. Start with offset 0. For each field in declaration order: add padding until the offset is a multiple of the field's alignment, record the field's offset, advance by the field's size. Finally, round the struct's total size up to its alignment. This is exactly how our `struct Bad` ended up at 24 bytes while `struct Good` achieved 16. The algorithm is mechanical, but field ordering is our responsibility.
 
-When is `mem::transmute` sound? Size must match—the compiler enforces this. Alignment must be compatible—transmuting `&u8` to `&u64` is unsound even if sizes matched, because the `u8` may not be 8-byte aligned. And validity must be preserved: the bytes must constitute a valid value of the target type. This last constraint is what Rust adds beyond C. The `repr(transparent)` attribute creates a type with identical layout to its single non-zero-sized field, making transmutation between them sound and enabling zero-cost newtypes.
+When is `mem::transmute` sound? Size must match (the compiler enforces this). Alignment must be compatible: transmuting `&u8` to `&u64` is unsound even if sizes matched, because the `u8` may not be 8-byte aligned. And validity must be preserved: the bytes must constitute a valid value of the target type. This last constraint is what Rust adds beyond C. The `repr(transparent)` attribute creates a type with identical layout to its single non-zero-sized field, making transmutation between them sound and enabling zero-cost newtypes.
 
 ## Storage Duration
 
@@ -349,13 +331,13 @@ Every object resides somewhere in memory. The *storage duration* of an object de
 
 C defines four storage durations. C++ inherits the same four. Rust maps onto an equivalent model, though the language specification does not use identical terminology.
 
-**Static storage duration**: The object exists for the entire execution of the program. In C and C++, this includes global variables, variables declared with `static`, and string literals. In Rust, this includes `static` items and string literals (which have type `&'static str`). The memory for these objects is typically placed in the `.data` or `.rodata` segment of the executable and requires no runtime allocation.
+* **Static storage duration**: The object exists for the entire execution of the program. In C and C++, this includes global variables, variables declared with `static`, and string literals. In Rust, this includes `static` items and string literals (which have type `&'static str`). The memory for these objects is typically placed in the `.data` or `.rodata` segment of the executable and requires no runtime allocation.
 
-**Thread storage duration**: The object exists for the lifetime of a thread. C11 introduced `_Thread_local` (spelled `thread_local` since C23), C++11 introduced `thread_local`, and Rust provides `thread_local!` macro. Each thread gets its own instance of the variable, allocated when the thread starts and deallocated when it terminates.
+* **Thread storage duration**: The object exists for the lifetime of a thread. C11 introduced `_Thread_local` (spelled `thread_local` since C23), C++11 introduced `thread_local`, and Rust provides `thread_local!` macro. Each thread gets its own instance of the variable, allocated when the thread starts and deallocated when it terminates.
 
-**Automatic storage duration**: The object exists within a lexical scope, typically a function body or block. When execution enters the scope, space is reserved; when execution leaves, the space is released. In C and C++, local variables without `static` or `thread_local` have automatic storage. In Rust, all local bindings have automatic storage. This is typically implemented via the stack.
+* **Automatic storage duration**: The object exists within a lexical scope, typically a function body or block. When execution enters the scope, space is reserved; when execution leaves, the space is released. In C and C++, local variables without `static` or `thread_local` have automatic storage. In Rust, all local bindings have automatic storage. This is typically implemented via the stack.
 
-**Allocated (dynamic) storage duration**: The object's lifetime is controlled explicitly by the program. In C, this means `malloc`/`free`. In C++, this means `new`/`delete` or allocator-aware containers. In Rust, this means `Box`, `Vec`, `String`, and other heap-allocating types.
+* **Allocated (dynamic) storage duration**: The object's lifetime is controlled explicitly by the program. In C, this means `malloc`/`free`. In C++, this means `new`/`delete` or allocator-aware containers. In Rust, this means `Box`, `Vec`, `String`, and other heap-allocating types.
 
 ### Stack
 
@@ -374,11 +356,7 @@ my_function:
 
 The `sub rsp, 48` instruction allocates space for all local variables in a single operation. The compiler computes the required size at compile time by summing the sizes of all locals (accounting for alignment). Deallocation is equally cheap: `mov rsp, rbp` releases all that space instantly.
 
-This has two consequences:
-
-1. Allocation and deallocation of automatic storage is $O(1)$ regardless of how many objects are involved. A function with 100 local variables pays the same cost as one with 2.
-
-2. The space is not initialized. After `sub rsp, 48`, those 48 bytes contain whatever was previously on the stack. In C, reading an uninitialized automatic variable is undefined behavior (the value is *indeterminate*). In C++, the same rule applies. In Rust, the compiler enforces definite initialization: you cannot read a variable before assigning to it.
+This has two consequences. First, allocation and deallocation of automatic storage is $O(1)$ regardless of how many objects are involved. A function with 100 local variables pays the same cost as one with 2. Second, the space is not initialized. After `sub rsp, 48`, those 48 bytes contain whatever was previously on the stack. In C, reading an uninitialized automatic variable is undefined behavior (the value is *indeterminate*). In C++, the same rule applies. In Rust, the compiler enforces definite initialization: you cannot read a variable before assigning to it.
 
 ```rust
 fn example() {
@@ -391,17 +369,7 @@ The Rust compiler tracks initialization state through control flow and rejects p
 
 ### Heap
 
-Dynamic allocation is fundamentally different. When we call `malloc(n)`, the allocator must:
-
-1. Find a contiguous region of at least `n` bytes that is not currently in use
-2. Mark that region as allocated
-3. Return a pointer to it
-
-When we call `free(p)`, the allocator must:
-
-1. Determine the size of the allocation (stored in metadata adjacent to the user data)
-2. Mark that region as available for future allocations
-3. Possibly coalesce adjacent free regions to reduce fragmentation
+Dynamic allocation is fundamentally different. When we call `malloc(n)`, the allocator must find a contiguous region of at least `n` bytes that is not currently in use, mark that region as allocated, and return a pointer to it. When we call `free(p)`, the allocator must determine the size of the allocation (stored in metadata adjacent to the user data), mark that region as available for future allocations, and possibly coalesce adjacent free regions to reduce fragmentation.
 
 This involves data structure manipulation, potential system calls (if the allocator needs more memory from the OS), and can have variable latency depending on heap state. The cost is not $O(1)$.
 
@@ -416,13 +384,7 @@ if (p == NULL) {
 free(p);
 ```
 
-The programmer is responsible for:
-1. Checking for allocation failure
-2. Calling `free` exactly once
-3. Not using the pointer after `free`
-4. Not freeing the same pointer twice
-
-Violating any of these causes undefined behavior or memory leaks. The language provides no assistance.
+We are responsible for checking for allocation failure, calling `free` exactly once, not using the pointer after `free`, and not freeing the same pointer twice. Violating any of these causes undefined behavior or memory leaks. The language provides no assistance.
 
 In C++, dynamic allocation can be explicit (`new`/`delete`) or managed through RAII:
 
@@ -436,7 +398,7 @@ auto v = std::make_unique<int[]>(100);
 // v automatically deleted when it goes out of scope
 ```
 
-`std::unique_ptr` wraps a raw pointer and calls `delete` in its destructor. When `v` goes out of scope, the destructor runs, the memory is freed. The programmer does not call `delete` manually.
+`std::unique_ptr` wraps a raw pointer and calls `delete` in its destructor. When `v` goes out of scope, the destructor runs, the memory is freed. We do not call `delete` manually.
 
 This is opt-in. You can still use raw `new`/`delete`. You can still have dangling pointers. The compiler does not verify correctness.
 
@@ -461,7 +423,7 @@ println!("{:?}", v1);  // error: borrow of moved value
 
 The central difference between C, C++, and Rust in their treatment of dynamic storage is responsibility for deallocation.
 
-In C, the programmer decides when to call `free`. The language does not track ownership. If you pass a pointer to a function, the function might free it, or it might not. The only way to know is documentation or convention.
+In C, we decide when to call `free`. The language does not track ownership. If you pass a pointer to a function, the function might free it, or it might not. The only way to know is documentation or convention.
 
 ```c
 void process(int* data) {
@@ -596,7 +558,7 @@ int main(void) {
 
 This program compiles. The function `dangling` returns a pointer to `x`, but `x` has automatic storage duration. When `dangling` returns, its stack frame is deallocated. The pointer `p` now points to memory that no longer belongs to any live object. Dereferencing it is undefined behavior.
 
-The C standard does not require the compiler to reject this. A conforming implementation may emit a warning, but the program is syntactically valid. The burden falls entirely on the programmer.
+The C standard does not require the compiler to reject this. A conforming implementation may emit a warning, but the program is syntactically valid. The burden falls entirely on us.
 
 ### C++: Lifetime Within Storage
 
@@ -624,11 +586,7 @@ w->~Widget();
 
 Between placement new and the explicit destructor call, the `Widget` object is alive. Before placement new and after the destructor, the bytes in `buffer` exist but no `Widget` does. Accessing `w->name` after the destructor call is undefined behavior. The bytes are there. The object is not.
 
-The C++ standard (N4950, §6.7.3) states:
-
-> The lifetime of an object of type T begins when: (1.1) storage with the proper alignment and size for type T is obtained, and (1.2) its initialization (if any) is complete.
-
-> The lifetime of an object of type T ends when: (1.3) if T is a non-class type, the object is destroyed, or (1.4) if T is a class type, the destructor call starts.
+The C++ standard formalizes this. For an object of type `T`, lifetime begins when storage with proper alignment and size is obtained and initialization is complete. Lifetime ends when the destructor call starts (for class types) or when the object is destroyed (for non-class types).
 
 For trivial types (no user-defined constructor, no destructor, no virtual functions), C++ behaves like C. For class types with nontrivial constructors or destructors, the distinction matters.
 
@@ -806,7 +764,7 @@ Now the compiler checks: does `'#1` contain any `end('x)` that is not justified 
 The `RegionInferenceContext` in rustc stores:
 
 - `constraints`: all outlives constraints
-- `liveness_constraints`: all liveness constraints  
+- `liveness_constraints`: all liveness constraints
 - `universal_regions`: the set of regions from the function signature
 - `universal_region_relations`: known relationships between universal regions (from where clauses)
 
@@ -1037,13 +995,11 @@ X* make_x() {
 }
 ```
 
-The C++ standard (N4950, §6.7.2) specifies that `malloc` implicitly creates objects of implicit-lifetime types if doing so would give the program defined behavior. This was a pragmatic fix for code that had been written for decades under the assumption that `malloc` plus assignment creates an object.
+The C++ standard specifies that `malloc` implicitly creates objects of implicit-lifetime types if doing so would give the program defined behavior. This was a pragmatic fix for code that had been written for decades under the assumption that `malloc` plus assignment creates an object.
 
 ### Rust: Immediate Undefined Behavior
 
-Rust takes the strictest position. Reading uninitialized memory is undefined behavior at the point of the read, regardless of type. The Rust Reference lists this explicitly:
-
-> An integer (`i*`/`u*`), floating point value (`f*`), or raw pointer must be initialized, i.e., must not be obtained from uninitialized memory.
+Rust takes the strictest position. Reading uninitialized memory is undefined behavior at the point of the read, regardless of type. The Rust Reference states that integers, floating point values, and raw pointers must be initialized and must not be obtained from uninitialized memory.
 
 This applies even to `u8`, which has no invalid bit patterns. The reasoning is that the compiler must be able to assume all values are initialized. Without this guarantee, the optimizer cannot propagate values, eliminate dead stores, or make any assumptions about the contents of memory.
 
@@ -1183,14 +1139,14 @@ const SIZE: usize = 10;
 
 let arr: [Box<u32>; SIZE] = {
     // Create array of uninitialized MaybeUninit
-    let mut arr: [MaybeUninit<Box<u32>>; SIZE] = 
+    let mut arr: [MaybeUninit<Box<u32>>; SIZE] =
         [const { MaybeUninit::uninit() }; SIZE];
-    
+
     // Initialize each element
     for i in 0..SIZE {
         arr[i] = MaybeUninit::new(Box::new(i as u32));
     }
-    
+
     // Transmute to initialized type
     unsafe { mem::transmute::<_, [Box<u32>; SIZE]>(arr) }
 };
@@ -1248,18 +1204,18 @@ A performance pattern for filling a vector from an external source:
 ```rust
 fn read_into_vec(src: &[u8], count: usize) -> Vec<u8> {
     let mut v: Vec<u8> = Vec::with_capacity(count);
-    
+
     unsafe {
         // Get raw pointer to uninitialized buffer
         let ptr = v.as_mut_ptr();
-        
+
         // Copy from source (assumes src.len() >= count)
         std::ptr::copy_nonoverlapping(src.as_ptr(), ptr, count);
-        
+
         // Tell Vec the elements are now initialized
         v.set_len(count);
     }
-    
+
     v
 }
 ```
@@ -1299,7 +1255,7 @@ The compiler believes `x` is initialized. It may propagate this "value" through 
 
 Two pointers *alias* when they refer to overlapping regions of memory. This matters because aliasing constrains what the compiler can optimize. If the compiler cannot prove that two pointers refer to different memory, it must assume that a write through one may affect a read through the other. This forces conservative code generation: values must be reloaded from memory instead of kept in registers, stores cannot be reordered, and entire classes of optimization become impossible.
 
-Aliasing rules exist for optimization, not for safety. C and C++ have aliasing rules that, when violated, result in undefined behavior. The compiler is not checking these rules to protect the programmer. It is assuming the programmer follows them, and optimizing accordingly. Violate the assumption and the optimizer generates incorrect code.
+Aliasing rules exist for optimization, not for safety. C and C++ have aliasing rules that, when violated, result in undefined behavior. The compiler is not checking these rules to protect us. It is assuming we follow them, and optimizing accordingly. Violate the assumption and the optimizer generates incorrect code.
 
 Rust makes the aliasing rule explicit and compiler-checked. The `&T`/`&mut T` distinction encodes a simple invariant: you can have many shared references or one mutable reference, but never both simultaneously. The borrow checker enforces this at compile time.
 
@@ -1377,7 +1333,7 @@ void update(int* pi, float* pf) {
 
 Under strict aliasing, the compiler may assume `pi` and `pf` do not alias. The write to `*pf` cannot affect `*pi`, so the compiler can print 1 without reloading from memory. It may even reorder the stores or keep `*pi` in a register.
 
-If the programmer passes pointers that actually alias:
+If we pass pointers that actually alias:
 
 ```c
 union { int i; float f; } u;
@@ -1421,7 +1377,7 @@ Modern compilers optimize `memcpy` of small sizes to register moves. The resulti
 
 Type-based alias analysis only helps when pointer types differ. Two `int*` pointers may alias, and the compiler must assume they do unless told otherwise.
 
-C99 introduced the `restrict` qualifier. A `restrict`-qualified pointer is a promise from the programmer: during the lifetime of this pointer, no other pointer will be used to access the same memory.
+C99 introduced the `restrict` qualifier. A `restrict`-qualified pointer is a promise from us: during the lifetime of this pointer, no other pointer will be used to access the same memory.
 
 ```c
 void add_arrays(int* restrict dest, const int* restrict src, size_t n) {
@@ -1445,7 +1401,7 @@ void add_arrays(int* dest, const int* src, size_t n) {
 
 The compiler must assume `dest` and `src` might overlap. If `dest == src + 1`, each store to `dest[i]` affects the next load from `src[i+1]`. The loop cannot be vectorized. Each iteration must complete before the next begins.
 
-The `restrict` qualifier is a promise, not a constraint. The compiler does not check it. If the programmer lies and passes overlapping pointers, the optimized code produces wrong results.
+The `restrict` qualifier is a promise, not a constraint. The compiler does not check it. If we lie and pass overlapping pointers, the optimized code produces wrong results.
 
 Standard library functions use `restrict` extensively:
 
@@ -1501,12 +1457,7 @@ v.push(4);         // mutable borrow of v for push
 println!("{}", x);
 ```
 
-The borrow checker sees:
-1. `&v[0]` creates a reference with lifetime `'a`
-2. The reference `x` must live until `println!`
-3. `v.push(4)` requires `&mut v`
-4. At the point of `push`, `x` is still live
-5. Conflict: cannot have `&mut v` while `&v` exists
+The borrow checker sees that `&v[0]` creates a reference with some lifetime, that this reference `x` must live until `println!`, that `v.push(4)` requires `&mut v`, that at the point of `push` the reference `x` is still live, and therefore there is a conflict: we cannot have `&mut v` while `&v` exists.
 
 The borrow checker does not know that `push` might reallocate the vector, invalidating `x`. It simply enforces the aliasing rule. As a consequence, it prevents the iterator invalidation bug.
 
@@ -1552,9 +1503,9 @@ The implementation of `split_at_mut` uses unsafe code:
 pub fn split_at_mut(&mut self, mid: usize) -> (&mut [T], &mut [T]) {
     let len = self.len();
     let ptr = self.as_mut_ptr();
-    
+
     assert!(mid <= len);
-    
+
     unsafe {
         (std::slice::from_raw_parts_mut(ptr, mid),
          std::slice::from_raw_parts_mut(ptr.add(mid), len - mid))
@@ -1562,7 +1513,7 @@ pub fn split_at_mut(&mut self, mid: usize) -> (&mut [T], &mut [T]) {
 }
 ```
 
-The unsafe block constructs two mutable slices from raw pointers. The programmer asserts that the slices do not overlap. The safe interface guarantees this by construction: the slices cover `[0, mid)` and `[mid, len)`. This is a very _Rusty_ pattern, we are building safe abstractions over unsafe primitives. Users of `split_at_mut` cannot violate the aliasing rules. The borrow checker verifies that the two returned slices are used correctly.
+The unsafe block constructs two mutable slices from raw pointers. We assert that the slices do not overlap. The safe interface guarantees this by construction: the slices cover `[0, mid)` and `[mid, len)`. This is a very *Rusty* pattern: building safe abstractions over unsafe primitives. Users of `split_at_mut` cannot violate the aliasing rules. The borrow checker verifies that the two returned slices are used correctly.
 
 ### From Rules to Registers
 
@@ -1614,7 +1565,7 @@ Now the compiler knows iterations are independent:
     jnz     .loop
 ```
 
-Eight elements per iteration. For large arrays, this can approach an 8x speedup in some workloads. 
+Eight elements per iteration. For large arrays, this can approach an 8x speedup in some workloads.
 
 In Rust, the equivalent function:
 
@@ -1628,10 +1579,10 @@ fn scale(dest: &mut [f32], src: &[f32], factor: f32) {
 
 The signature encodes the non-aliasing constraint. The borrow checker verifies at call sites that `dest` and `src` do not overlap. The compiler passes `noalias` to LLVM, and LLVM generates the same vectorized loop.
 
-In C, `restrict` is a promise the programmer can break. In Rust, the borrow checker enforces it. The generated code is identical. The safety guarantee is not.
+In C, `restrict` is a promise we can break. In Rust, the borrow checker enforces it. The generated code is identical. The safety guarantee is not.
 
 This is why aliasing rules exist. They are the information the optimizer needs to use the hardware effectively. C provides this through type rules and programmer annotations. Rust provides it through static analysis. The CPU does not care which language we used. It cares whether the instructions match the actual memory access patterns.
 
 ---
 
-Part II will explore what happens when objects own resources that must be released: the question of *who calls free*. C leaves this to the programmer. C++ introduced RAII, binding resource lifetime to object lifetime through constructors and destructors. Rust makes RAII mandatory and tracks ownership in the type system. The aliasing rules we established here, shared XOR mutable, are the foundation that makes Rust's ownership model possible. If we allow unrestricted aliasing, we cannot reason about who may modify memory. Rust's borrow checker is, at its core, an aliasing verifier.
+Part II will explore what happens when objects own resources that must be released: the question of *who calls free*.

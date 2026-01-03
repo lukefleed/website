@@ -21,7 +21,7 @@ Part III turns to _representation_: how abstract types become concrete bit patte
 
 In Part I we established that every type has a size and an alignment, and that compilers insert padding to satisfy alignment constraints. We showed how a poorly ordered struct in C could waste 8 bytes of padding where a well-ordered one used only 2. But we sidestepped a question: who decides the order?
 
-In C and C++, the answer is straightforward: we do. The compiler lays out fields in declaration order, inserting padding as the alignment algorithm dictates. This predictability is essential for binary compatibility, memory-mapped I/O, and network protocols where byte offsets must match external specifications. It is also a constraint: the programmer bears responsibility for field ordering, and a careless declaration can bloat a frequently-allocated struct.
+In C and C++, the answer is straightforward: we do. The compiler lays out fields in declaration order, inserting padding as the alignment algorithm dictates. This predictability is essential for binary compatibility, memory-mapped I/O, and network protocols where byte offsets must match external specifications. It is also a constraint: we bear responsibility for field ordering, and a careless declaration can bloat a frequently-allocated struct.
 
 Rust makes a different choice. By default, the compiler reserves the right to reorder fields.
 
@@ -73,7 +73,7 @@ Rust's default representation, `repr(Rust)`, makes minimal guarantees. The speci
 2. Fields do not overlap (except for ZSTs, which may share addresses).
 3. The struct's alignment is at least the maximum alignment of its fields.
 
-There is no guarantee about field order. The compiler may reorder fields to minimize padding, and different compilations of the same source may produce different layouts. The same generic struct instantiated with different type parameters may have different field orderings.
+There is no guarantee about field order. The compiler may reorder fields to minimize padding, and different compilations of the same source can produce different layouts. The same generic struct instantiated with different type parameters will typically have different field orderings.
 
 Consider:
 
@@ -208,7 +208,7 @@ enum Packet {
 
 Combining `repr(C)` and a primitive representation, like `#[repr(C, u8)]`, specifies both C layout and a specific discriminant type.
 
-Adding an explicit `repr` to an enum with fields has a consequence that surprises many: it *suppresses niche optimization*. We have not yet explained what niche optimization is, so this statement may seem cryptic. We will return to it after discussing zero-sized types, where the concept will make more sense.
+Adding an explicit `repr` to an enum with fields has a consequence: it *suppresses niche optimization*. This becomes clear after we discuss zero-sized types.
 
 ### repr(packed): Eliminating Padding
 
@@ -684,7 +684,7 @@ When the predictor guesses wrong, the pipeline must be flushed and restarted fro
 
 The vtable itself must be in cache for the lookup to be fast. A vtable is small (typically 32-64 bytes for a trait with a few methods), but if we iterate over a heterogeneous collection of trait objects, each object may point to a different vtable. With many distinct implementations, the vtables compete for cache space. The first access to each vtable is a cache miss, adding 100+ cycles of memory latency.
 
-Inlining is the most significant loss. When the compiler inlines a function, it can see both caller and callee code simultaneously. This enables constant propagation, dead code elimination, loop fusion, and SIMD vectorization across the boundary. In the general case, none of this is possible through a vtable, the compiler cannot see through the indirection, so each call becomes an optimization barrier.
+Inlining is the most significant loss. When the compiler inlines a function, it can see both caller and callee code simultaneously. This enables constant propagation, dead code elimination, loop fusion, and SIMD vectorization across the boundary. In the general case, none of this is possible through a vtable; the compiler cannot see through the indirection, so each call becomes an optimization barrier.
 
 In C++, modern compilers can sometimes *devirtualize* virtual calls. If the concrete type is visible at the call site (immediately after construction, or when the class is marked `final`), Clang/GCC may replace the indirect call with a direct one. With LTO and `-fwhole-program-vtables`, C++ compilers can devirtualize when only one implementation exists program-wide.
 
@@ -829,7 +829,7 @@ Methods that violate these rules can still exist on dyn-compatible traits if the
 ```rust
 trait PartiallyCompatible {
     fn dispatchable(&self);
-    
+
     fn not_dispatchable(&self) -> Self where Self: Sized;
 }
 
@@ -975,7 +975,7 @@ fn main() {
         // Requires ptr::from_raw_parts or careful transmutation
         std::mem::transmute::<&MySized<4>, &MySlice>(&sized)
     };
-    
+
     assert_eq!(dynamic.header, 42);
     assert_eq!(dynamic.data.len(), 4);
 }
@@ -1092,7 +1092,7 @@ double y = max(1.5, 2.5);    // instantiates max<double>
 
 When the compiler encounters `max(3, 5)`, it deduces `T = int` and generates a specialized function `max<int>`. A separate `max<double>` gets generated for the second call. Each instantiation is compiled independently, producing code identical to what we would write by hand. There is no runtime overhead.
 
-Templates use what is sometimes called *duck typing*: if the operations used in the template body are valid for the concrete type, instantiation succeeds. If not, the compiler emits an error. The problem is that errors emerge from deep within the template instantiation, often producing notoriously verbose diagnostics that obscure the root cause. The template's requirements are implicit; we discover at instantiation time whether a type satisfies them.
+Templates use what is sometimes called *duck typing*: instantiation succeeds when the operations used in the template body are valid for the concrete type; otherwise, the compiler emits an error. The problem is that errors emerge from deep within the template instantiation, often producing notoriously verbose diagnostics that obscure the root cause. The template's requirements are implicit; we discover at instantiation time whether a type satisfies them.
 
 This implicit checking enables SFINAE (Substitution Failure Is Not An Error), a mechanism where invalid template substitutions silently remove candidates from the overload set rather than causing hard errors. Before C++20, constraining templates required arcane metaprogramming with `std::enable_if` and type traits:
 
@@ -1384,7 +1384,7 @@ int compare_by_distance(const void *a, const void *b, void *ctx) {
     const struct Point *pa = a;
     const struct Point *pb = b;
     const struct DistanceContext *c = ctx;
-    
+
     double da = hypot(pa->x - c->ref_x, pa->y - c->ref_y);
     double db = hypot(pb->x - c->ref_x, pb->y - c->ref_y);
     return (da > db) - (da < db);
@@ -1397,7 +1397,7 @@ qsort_r(points, n, sizeof(struct Point), compare_by_distance, &ctx);
 
 The `qsort_r` variant (POSIX, not standard C) threads the context through to the comparator. The pattern is universal in C callback APIs: a function pointer paired with a `void*` that the library passes back untouched.
 
-The problems are evident. The `void*` erases type information; nothing prevents us from passing a `DistanceContext*` to a callback expecting something else. The compiler cannot verify that the context pointer remains valid when the callback executes. If the callback outlives the context's stack frame, we have a dangling pointer. The burden falls entirely on us.
+The `void*` erases type information; nothing prevents us from passing a `DistanceContext*` to a callback expecting something else. The compiler cannot verify that the context pointer remains valid when the callback executes. If the callback outlives the context's stack frame, we have a dangling pointer. The burden falls entirely on us.
 
 ### C++ Lambdas
 
@@ -1418,7 +1418,7 @@ desugars to something equivalent to
 struct __lambda_1 {
     double ref_x;
     double ref_y;
-    
+
     bool operator()(const Point& a, const Point& b) const {
         double da = std::hypot(a.x - ref_x, a.y - ref_y);
         double db = std::hypot(b.x - ref_x, b.y - ref_y);
@@ -1431,7 +1431,7 @@ __lambda_1 compare{ref_x, ref_y};
 
 The capture list specifies what enters the closure and how. `[x]` captures `x` by value (copies it into the struct). `[&x]` captures by reference (the struct holds a reference). `[=]` captures everything used by value. `[&]` captures everything by reference. `[x, &y]` mixes modes.
 
-Each lambda has a unique anonymous type that the programmer cannot name. We must use `auto` for local variables or templates for function parameters:
+Each lambda has a unique anonymous type that we cannot name. We must use `auto` for local variables or templates for function parameters:
 
 ```cpp
 template<typename F>

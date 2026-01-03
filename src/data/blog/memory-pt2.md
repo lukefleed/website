@@ -19,7 +19,7 @@ In the [first part](https://lukefleed.xyz/posts/who-owns-the-memory-pt1/) of thi
 
 The stack is self-managing. When a function returns, the stack pointer moves and automatic storage vanishes. There is no decision to make, no function to call, no possibility of error. The heap is different. Memory obtained through `malloc` persists until someone calls `free`. The allocator cannot know when we are finished with an allocation; only our program logic knows that. And so the burden falls on us.
 
-This burden is not merely administrative. The consequences of mismanagement are severe and often exploitable. If we free too early, subsequent accesses read garbage or, worse, data that a new allocation has placed there (a use-after-free, the vulnerability class behind a substantial fraction of remote code execution exploits). If we free twice, we corrupt the allocator's metadata; an attacker who controls the timing can often leverage this into arbitrary write primitives. If we never free, we leak, and the process grows until the operating system intervenes.
+This burden carries severe consequences, often exploitable ones. If we free too early, subsequent accesses read garbage or, worse, data that a new allocation has placed there (a use-after-free, the vulnerability class behind a substantial fraction of remote code execution exploits). If we free twice, we corrupt the allocator's metadata; an attacker who controls the timing can often leverage this into arbitrary write primitives. If we never free, we leak, and the process grows until the operating system intervenes.
 
 The question is how programming languages help us manage this responsibility, or whether they help at all.
 
@@ -155,12 +155,12 @@ void dangling() {
 
 The compiler does not track which pointers own and which merely observe. We can bypass RAII entirely with raw `new` and `delete`. We can hold raw pointers past their owners' lifetimes. We can `delete` through a base class pointer when the destructor is not virtual, which is undefined behavior even if no resources would leak, because the derived destructor never runs.
 
-C++ gives us the machinery for safe resource management. Using that machinery is a choice the language cannot enforce. A codebase mixing raw pointers, `unique_ptr`, `shared_ptr`, and manual `new`/`delete` requires reasoning about ownership at every function boundary. The answer is not in the types; it is in the programmers' heads, in comments, in coding standards. This is better than C, where even the machinery does not exist. But it is not sufficient to eliminate memory safety bugs from large codebases.
+C++ gives us the machinery for safe resource management. Using that machinery is a choice the language cannot enforce. A codebase mixing raw pointers, `unique_ptr`, `shared_ptr`, and manual `new`/`delete` requires reasoning about ownership at every function boundary. The answer lives in programmers' heads, in comments, in coding standards. This is better than C, where even the machinery does not exist. But it remains insufficient to eliminate memory safety bugs from large codebases.
 
 
 ### Rust: Ownership in the Type System
 
-Rust takes the RAII pattern and embeds it into the type system as a non-negotiable rule: every value has exactly one owner, and when that owner goes out of scope, the value is dropped. This is not a convention that programmers may follow or ignore. It is a property that the compiler verifies statically.
+Rust takes the RAII pattern and embeds it into the type system as a non-negotiable rule: every value has exactly one owner, and when that owner goes out of scope, the value is dropped. The compiler verifies this property statically, and no amount of programmer intent can bypass it.
 
 Consider what happens when we allocate a vector:
 
@@ -197,7 +197,7 @@ fn main() {
 }
 ```
 
-The function signature `fn consume(v: Vec<i32>)` declares that `consume` takes ownership. The caller cannot use `data` after the call because ownership has moved. Compare this to `fn borrow(v: &Vec<i32>)`, which borrows without taking ownership, or `fn mutate(v: &mut Vec<i32>)`, which borrows mutably. The type encodes the ownership relationship. 
+The function signature `fn consume(v: Vec<i32>)` declares that `consume` takes ownership. The caller cannot use `data` after the call because ownership has moved. Compare this to `fn borrow(v: &Vec<i32>)`, which borrows without taking ownership, or `fn mutate(v: &mut Vec<i32>)`, which borrows mutably. The type encodes the ownership relationship.
 
 #### The Drop Trait and Recursive Destruction
 
@@ -563,12 +563,12 @@ public:
     explicit Transaction(Database& db) : db_(db), committed_(false) {
         db_.begin();
     }
-    
+
     void commit() {
         db_.commit();
         committed_ = true;
     }
-    
+
     ~Transaction() {
         if (!committed_) {
             db_.rollback();
@@ -621,10 +621,10 @@ Zig's `defer` runs an expression unconditionally when control leaves the enclosi
 fn processFile(path: []const u8) !void {
     const file = try std.fs.cwd().openFile(path, .{});
     defer file.close();
-    
+
     const buffer = try allocator.alloc(u8, 4096);
     defer allocator.free(buffer);
-    
+
     // work with file and buffer
     // both are cleaned up when we exit, regardless of how
 }
@@ -713,21 +713,21 @@ The more serious problem is propagation. Consider a function that opens a file, 
 int process_file(const char *path) {
     FILE *f = fopen(path, "r");
     if (!f) return -1;
-    
+
     char *buf = malloc(4096);
     if (!buf) {
         fclose(f);
         return -1;
     }
-    
+
     if (fread(buf, 1, 4096, f) == 0 && ferror(f)) {
         free(buf);
         fclose(f);
         return -1;
     }
-    
+
     // process buf...
-    
+
     free(buf);
     fclose(f);
     return 0;
@@ -743,18 +743,18 @@ int process_file(const char *path) {
     int result = -1;
     FILE *f = NULL;
     char *buf = NULL;
-    
+
     f = fopen(path, "r");
     if (!f) goto cleanup;
-    
+
     buf = malloc(4096);
     if (!buf) goto cleanup;
-    
+
     if (fread(buf, 1, 4096, f) == 0 && ferror(f)) goto cleanup;
-    
+
     // process buf...
     result = 0;
-    
+
 cleanup:
     free(buf);
     if (f) fclose(f);
@@ -783,7 +783,7 @@ int main(void) {
         fprintf(stderr, "operation aborted\n");
         return EXIT_FAILURE;
     }
-    
+
     deep_function();
     return EXIT_SUCCESS;
 }
@@ -920,12 +920,12 @@ auto strcat(int i) -> std::expected<std::string, E> {
     if (!f) {
         return std::unexpected(f.error());
     }
-    
+
     auto b = bar(i);
     if (!b) {
         return std::unexpected(b.error());
     }
-    
+
     return std::format("{}{}", *f, *b);
 }
 ```
@@ -1093,7 +1093,7 @@ impl<T: Clone> Vec<T> {
         self.reserve(src.len());
         let old_len = self.len();
         self.set_len(old_len + src.len());  // length updated first
-        
+
         for (i, x) in src.iter().enumerate() {
             // clone() might panic!
             self.as_mut_ptr().add(old_len + i).write(x.clone());
@@ -1119,18 +1119,18 @@ impl<T> Drop for SetLenOnDrop<'_, T> {
 impl<T: Clone> Vec<T> {
     fn extend_from_slice(&mut self, src: &[T]) {
         self.reserve(src.len());
-        let mut guard = SetLenOnDrop { 
-            vec: self, 
-            len: self.len() 
+        let mut guard = SetLenOnDrop {
+            vec: self,
+            len: self.len()
         };
-        
+
         for x in src {
             unsafe {
                 self.as_mut_ptr().add(guard.len).write(x.clone());
             }
             guard.len += 1;  // only increment after successful write
         }
-        
+
         std::mem::forget(guard);  // don't run Drop, length is correct
     }
 }
@@ -1156,7 +1156,7 @@ A `std::vector<int>` in C++ or a `Vec<i32>` in Rust has a particular structure: 
 ```cpp
 struct Vec {
     int* data;     // 8 bytes
-    size_t len;    // 8 bytes  
+    size_t len;    // 8 bytes
     size_t cap;    // 8 bytes
 };
 // sizeof(Vec) == 24, but data might point to way more memory
@@ -1166,7 +1166,7 @@ If we copy this struct byte-for-byte, we produce two `Vec` instances pointing to
 
 The alternative is a deep copy: allocate new heap storage, copy all data, and update the new struct's pointer. This is correct but expensive. Copying takes time. More importantly, it allocates memory, which involves a system call (or at minimum, allocator bookkeeping) and pollutes the cache with data we may never touch again.
 
-The overhead becomes prohibitive when values pass through function boundaries repeatedly. A function that takes a `vector` by value, processes it, and returns a new `vector` might copy millions of bytes twiceâ€”once on entry, once on return. In performance-sensitive code, we want to avoid passing large objects by value entirely, preferring pointers or references. But this complicates APIs and obscures ownership.
+The overhead becomes prohibitive when values pass through function boundaries repeatedly. A function that takes a `vector` by value, processes it, and returns a new `vector` might copy millions of bytes twice: once on entry, once on return. In performance-sensitive code, we want to avoid passing large objects by value entirely, preferring pointers or references. But this complicates APIs and obscures ownership.
 
 ### The Shallow Copy Escape
 
@@ -1227,7 +1227,7 @@ public:
         len_ = other.len_;
         cap_ = other.cap_;
     }
-    
+
     // Move constructor: source is rvalue reference
     vector(vector&& other) noexcept {
         data_ = other.data_;
@@ -1327,11 +1327,11 @@ The self-assignment check is necessary because `std::move` can be applied to any
 
 The destructor of the moved-from object still runs. Move semantics transfer ownership of *resources*, but the source object continues to exist until its scope ends. The moved-from state must be valid enough for the destructor to execute safely. For `vector`, that means null pointer and zero lengths,the destructor checks for null before freeing, or simply has no work to do.
 
-The `noexcept` specification on move constructors matters for optimization. `std::vector` needs to relocate elements when it grows. If the element type's move constructor is `noexcept`, the vector can move elements to the new buffer. If it might throw, the vector must copy instead to preserve the strong exception guaranteeâ€”if an exception occurs during relocation, the original vector must remain intact. The difference can be dramatic for vectors of vectors.
+The `noexcept` specification on move constructors matters for optimization. `std::vector` needs to relocate elements when it grows. If the element type's move constructor is `noexcept`, the vector can move elements to the new buffer. If it might throw, the vector must copy instead to preserve the strong exception guarantee. If an exception occurs during relocation, the original vector must remain intact. The difference can be dramatic for vectors of vectors.
 
 #### Value Categories in Depth
 
-C++11 refined the notion of value categories beyond the simple lvalue/rvalue split. We have three categories: 
+C++11 refined the notion of value categories beyond the simple lvalue/rvalue split. We have three categories:
 
 * An **lvalue** designates an object with identity that persists beyond a single expression. Variables, function returns by reference, dereferenced pointers. The address can be taken.
 
@@ -1343,7 +1343,7 @@ Overload resolution uses these categories:
 
 ```cpp
 void f(Widget& w);        // lvalue reference overload
-void f(const Widget& w);  // const lvalue reference overload  
+void f(const Widget& w);  // const lvalue reference overload
 void f(Widget&& w);       // rvalue reference overload
 
 Widget w;
@@ -1354,7 +1354,7 @@ f(Widget{});         // calls f(Widget&&) - prvalue
 f(std::move(w));     // calls f(Widget&&) - xvalue
 ```
 
-When both `const T&` and `T&&` overloads exist, rvalues (prvalues and xvalues) prefer the `T&&` overload. Lvalues can only bind to the lvalue reference overloads. If only `const T&` is provided, it accepts everythingâ€”rvalues bind to const lvalue references, which is why copying was the fallback before C++11.
+When both `const T&` and `T&&` overloads exist, rvalues (prvalues and xvalues) prefer the `T&&` overload. Lvalues can only bind to the lvalue reference overloads. If only `const T&` is provided, it accepts everything; rvalues bind to const lvalue references, which is why copying was the fallback before C++11.
 
 This machinery operates entirely at compile time. By the time we reach machine code, there are no value categories, no rvalue references, just addresses and data. The type system's job was to select the right constructor or operator; having done so, the generated code performs the memory operations we specified.
 
@@ -1404,7 +1404,7 @@ void process(std::vector<int> data);
 void example() {
     std::vector<int> v{1, 2, 3, 4, 5};
     process(std::move(v));
-    
+
     // Bug: v has been moved from
     for (int x : v) {         // compiles fine
         std::cout << x << " "; // prints nothing, or garbage, or crashes
@@ -1448,7 +1448,7 @@ fn process(data: Vec<i32>);
 fn example() {
     let v = vec![1, 2, 3, 4, 5];
     process(v);
-    
+
     for x in v {         // error: use of moved value: `v`
         println!("{}", x);
     }
@@ -1465,12 +1465,12 @@ error[E0382]: use of moved value: `v`
   |         - move occurs because `v` has type `Vec<i32>`, which does not implement the `Copy` trait
 5 |     process(v);
   |             - value moved here
-6 |     
+6 |
 7 |     for x in v {
   |              ^ value used here after move
 ```
 
-There is no moved-from state to observe because there is no way to observe it. The binding `v` is not null, not empty, not unspecifiedâ€”it simply does not exist from the compiler's perspective after the move. The name remains in scope (you can shadow it with a new binding), but the compiler's initialization tracking marks it as uninitialized.
+There is no moved-from state to observe because there is no way to observe it. The binding `v` is not null, not empty, not unspecified. It simply does not exist from the compiler's perspective after the move. The name remains in scope (you can shadow it with a new binding), but the compiler's initialization tracking marks it as uninitialized.
 
 At the assembly level, the actual data movement is nearly identical to C++. The `Vec`'s three words (pointer, length, capacity) are copied from one stack location to another, or into registers for a function call. There is no heap allocation, no deep copy, just 24 bytes shuffled around. The difference is purely a compile-time concept: Rust tracks that the source is no longer valid.
 
@@ -1528,7 +1528,7 @@ fn example(condition: bool) {
 
 The drop flag mechanism tells us something about the design trade-off Rust accepted. In straight-line code, the compiler knows exactly which bindings are initialized at every point, and generates direct drops with no runtime overhead. But conditional moves force a choice: either reject some valid programs (overly conservative static analysis), or emit a runtime check. Rust chose the latter for flexibility, keeping the flag on the stack where it costs a byte and a conditional branch at scope exit. For hot loops, we can restructure code to ensure static initialization tracking; for cold paths, the flag is negligible.
 
-What we cannot do in safe Rust is observe a moved-from binding. The asymmetry with C++ is not about what happens at runtime, both languages copy the same bytes, both leave the source's memory untouched until the stack frame is reclaimed. The difference is what the compiler permits us to write. C++ allows the moved-from object to participate in subsequent expressions; Rust does not. 
+What we cannot do in safe Rust is observe a moved-from binding. The asymmetry with C++ lies entirely in what the compiler permits us to write, since both languages copy the same bytes at runtime and both leave the source's memory untouched until the stack frame is reclaimed. C++ allows the moved-from object to participate in subsequent expressions; Rust does not.
 
 ### Copy, Move, Clone
 
@@ -1564,7 +1564,7 @@ error[E0204]: the trait `Copy` cannot be implemented for this type
   |                -------- this field does not implement `Copy`
 ```
 
-C++ has a parallel concept in *trivially copyable* types. The C++ standard (Â§11.2) defines a trivially copyable class as one where each eligible copy constructor, move constructor, copy assignment operator, and move assignment operator is trivial, and the destructor is trivial and non-deleted. "Trivial" here means the compiler-generated default does the right thing, which for these operations means bitwise copy. A `struct` containing only integers and other trivially copyable types is trivially copyable.
+C++ has a parallel concept in *trivially copyable* types. The C++ standard defines a trivially copyable class as one where each eligible copy constructor, move constructor, copy assignment operator, and move assignment operator is trivial, and the destructor is trivial and non-deleted. "Trivial" here means the compiler-generated default does the right thing, which for these operations means bitwise copy. A `struct` containing only integers and other trivially copyable types is trivially copyable.
 
 The difference is enforcement. In C++, `std::is_trivially_copyable_v<T>` is a compile-time query we can use in `static_assert` or SFINAE, but the language does not prevent us from memcpy-ing a non-trivially-copyable object. We might get away with it if the object has no internal pointers or virtual functions. We might corrupt memory if it does. In Rust, attempting to derive `Copy` on a non-qualifying type is a hard error.
 
@@ -1620,7 +1620,7 @@ Here the compiler can allocate `v` directly in the caller-provided space from th
 
 Before C++17, both forms of elision were permitted but not guaranteed. A conforming compiler could choose not to elide, and the program would fall back to copy or move constructors. Code relying on elision for correctness, such as returning a non-copyable non-movable type, was non-portable.
 
-C++17 changed this for prvalues through a reformulation of value categories. The standard now specifies that prvalues are not *materialized* until needed. A prvalue does not create a temporary object; it initializes a target object directly. The C++ standard (Â§6.7.7) states that the materialization of a temporary object is generally delayed as long as possible to avoid creating unnecessary temporary objects. The result is *guaranteed copy elision* for prvalues. The statement `std::vector<int> v = make_vector();` constructs the vector directly into `v`, guaranteed by the standard, not merely permitted as an optimization.
+C++17 changed this for prvalues through a reformulation of value categories. The standard now specifies that prvalues are not *materialized* until needed. A prvalue does not create a temporary object; it initializes a target object directly. The C++ standard states that the materialization of a temporary object is generally delayed as long as possible to avoid creating unnecessary temporary objects. The result is *guaranteed copy elision* for prvalues. The statement `std::vector<int> v = make_vector();` constructs the vector directly into `v`, mandated by the standard rather than left as an optional optimization.
 
 NRVO remains optional. The standard permits but does not require it. In practice, every major compiler performs NRVO when control flow permits. Multiple return statements returning different named variables typically defeat NRVO because the compiler cannot know at the function's entry which variable will be returned.
 
@@ -1694,7 +1694,7 @@ drop(b);                         // strong count: 1
 // a dropped, strong count: 0, Widget dropped, RcBox deallocated
 ```
 
-The convention is to write `Rc::clone(&a)` rather than `a.clone()`. Both work identically, but the explicit form makes clear that we are incrementing a reference count, not performing a deep copy. 
+The convention is to write `Rc::clone(&a)` rather than `a.clone()`. Both work identically, but the explicit form makes clear that we are incrementing a reference count, not performing a deep copy.
 
 `Arc<T>` has the same layout, with the counts replaced by `AtomicUsize`:
 
