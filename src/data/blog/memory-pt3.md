@@ -8,7 +8,7 @@ draft: false
 tags:
   - Rust
   - Programming
-description: "This is the third article of a series exploring how C, C++, and Rust manage memory at a low level. Here we turn to representation: how abstract types become concrete bit patterns, and how polymorphism is implemented."
+description: "Type layout, fat pointers, and the cost of polymorphism."
 ---
 
 This is the third part of a series exploring how C, C++, and Rust manage memory at a low level. In [Part I](https://lukefleed.xyz/posts/who-owns-the-memory-pt1/) we examined how memory is organized at the hardware level. [Part II](https://lukefleed.xyz/posts/who-owns-the-memory-pt2/) explored ownership and lifetime, showing how the three languages answer the question of who is responsible for freeing memory and when access to that memory is valid.

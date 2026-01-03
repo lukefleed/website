@@ -8,7 +8,7 @@ draft: false
 tags:
   - Rust
   - Programming
-description: "This is the second article of a series exploring how C, C++, and Rust manage memory at a low level. Here, we ask the question: when heap-allocated memory must be released, who bears responsibility for releasing it?"
+description: "Destructors, RAII, and the ownership question."
 ---
 
 In the [first part](https://lukefleed.xyz/posts/who-owns-the-memory-pt1/) of this series, we saw that objects occupy storage, that storage has duration, and that the type system imposes structure on raw bytes. But we have sidestepped a question that dominates systems programming in practice: when heap-allocated memory must be released, who bears responsibility for releasing it?
