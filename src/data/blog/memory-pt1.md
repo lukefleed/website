@@ -93,7 +93,7 @@ struct Good {
 
 `sizeof(struct Bad)` is 24 bytes. `sizeof(struct Good)` is 16 bytes. The compiler cannot reorder fields in C (the standard guarantees fields appear in declaration order with increasing addresses), so we must consider layout ourselves.
 
-![](/memory/fig1.png)
+![](/memory/fig1.jpg)
 <p align="center"><em>Yes, it's made with Gemini. I'm not good with Figma.</em></p>
 
 ### The Allocator's View
