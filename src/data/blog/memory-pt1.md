@@ -8,7 +8,7 @@ draft: false
 tags:
   - Rust
   - Programming
-description: "Effective types, storage duration, and aliasing rules in C, C++, and Rust."
+description: "This is the first article of a series exploring how C, C++, and Rust manage memory at a low level. We begin where the hardware does: with bytes. From there, we build up to objects, storage duration, lifetime, and aliasing, the vocabulary required to understand ownership."
 ---
 
 
