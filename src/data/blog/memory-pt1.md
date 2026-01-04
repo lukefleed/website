@@ -35,7 +35,7 @@ From our perspective, virtual memory means that the addresses we work with are t
 
 ### Alignment
 
-Not all byte addresses are equal. On x86-64, loading a `uint64_t` from an address that is not divisible by 8 incurs a penalty. On stricter architectures like ARM (without unaligned access support) or older SPARC, it causes a hardware trap.
+Not all byte addresses are equal. ~~On x86-64, loading a `uint64_t` from an address that is not divisible by 8 incurs a penalty. On stricter architectures like ARM (without unaligned access support) or older SPARC, it causes a hardware trap.~~ On x86-64, misaligned access to a `uint64_t` is handled transparently by the CPU with negligible overhead for most workloads. Intel has optimized this path since Sandy Bridge (2011). The penalty becomes significant only when a load straddles a cache line boundary (64 bytes) or, worse, a page boundary. On stricter architectures like ARM (without unaligned access support) or older SPARC, it causes a hardware trap.
 
 The reason is mechanical. DRAM is accessed in aligned chunks. When the CPU requests data at address `0x1003`, but the memory bus fetches 8-byte-aligned blocks, the memory controller must fetch two blocks (`0x1000-0x1007` and `0x1008-0x100F`), extract the relevant bytes, and reassemble them. This costs cycles.
 
