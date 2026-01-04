@@ -51,7 +51,8 @@ int main(void) {
 }
 ```
 
-The `alignof` operator (C11/C23) returns the required alignment for a type. Accessing an object at an address that violates its alignment is undefined behavior, not because the standard is being pedantic, but because the hardware cannot reliably execute it.
+The `alignof` operator (C11/C23) returns the required alignment for a type. Accessing an object at an address that violates its alignment is undefined behavior,~~ not because the standard is being pedantic, but because the hardware cannot reliably execute it~~. This allows the compiler to assume aligned access and emit instructions that would
+trap or produce wrong results on misaligned addresses. On x86-64, misaligned scalar loads work but may cross cache lines; on stricter architectures like ARM, they trap.
 
 Consider this concrete failure case from [Modern C](https://gustedt.gitlabpages.inria.fr/modern-c/):
 ```c
@@ -359,6 +360,8 @@ my_function:
 The `sub rsp, 48` instruction allocates space for all local variables in a single operation. The compiler computes the required size at compile time by summing the sizes of all locals (accounting for alignment). Deallocation is equally cheap: `mov rsp, rbp` releases all that space instantly.
 
 This has two consequences. First, allocation and deallocation of automatic storage is $O(1)$ regardless of how many objects are involved. A function with 100 local variables pays the same cost as one with 2. Second, the space is not initialized. After `sub rsp, 48`, those 48 bytes contain whatever was previously on the stack. In C, reading an uninitialized automatic variable is undefined behavior (the value is *indeterminate*). In C++, the same rule applies. In Rust, the compiler enforces definite initialization: you cannot read a variable before assigning to it.
+
+> In C, reading an uninitialized automatic variable is undefined behavior (the value is *indeterminate*). In C++ prior to C++26, the same rule applies. C++26 introduces *erroneous behavior*, a new category: the value is still indeterminate but reading it is not UB—implementations may diagnose or zero-initialize. Clang's `-ftrivial-auto-var-init=zero` has provided this behavior for years.
 
 ```rust
 fn example() {
@@ -909,7 +912,7 @@ When elision rules do not determine all lifetimes, explicit annotation is requir
 
 ### `'static`
 
-The lifetime `'static` means valid for the entire program. String literals have type `&'static str` because they are stored in the binary's read-only data segment:
+The lifetime `'static` means valid for the ~~entire program~~ remainder of program execution. String literals have type `&'static str` because they are stored in the binary's read-only data segment:
 
 ```rust
 let s: &'static str = "hello";
@@ -1166,7 +1169,10 @@ When `MaybeUninit::new` is not suitable, we use raw pointer operations. The `ptr
 - `ptr::copy(src, dest, count)`: Copies `count` elements from `src` to `dest` (like `memmove`)
 - `ptr::copy_nonoverlapping(src, dest, count)`: Like `copy`, but assumes no overlap (like `memcpy`)
 
-These functions do not drop the destination. They overwrite the bytes. This is correct for uninitialized memory but dangerous for initialized memory containing values with destructors.
+These functions do not drop the destination. They overwrite the bytes. This is correct for uninitialized memory but dangerous for initialized memory containing values with destructors. We can use `std::mem::needs_drop::<T>()` to check at compile time whether a type requires drop glue.
+
+A subtlety: the destination pointer must have *provenance* for the target allocation. Rust's memory model tracks not just addresses but also which allocation a pointer is permitted to access. A pointer synthesized from an integer (via `ptr::from_exposed_addr`)
+has weaker provenance guarantees than one derived from a reference.
 
 ```rust
 use std::ptr;
