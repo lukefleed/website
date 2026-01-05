@@ -8,7 +8,7 @@ import LinkButton from "@/components/LinkButton.astro";
 import Card from "@/components/Card.astro";
 import Hr from "@/components/Hr.astro";
 import getSortedPosts from "@/utils/getSortedPosts";
-// import IconRss from "@/assets/icons/IconRss.svg";
+import IconRss from "@/assets/icons/IconRss.svg";
 import IconArrowRight from "@/assets/icons/IconArrowRight.svg";
 import { SITE } from "@/config";
 import { SOCIALS } from "@/constants";
@@ -36,7 +36,7 @@ const recentUniversityPosts = sortedUniversityPosts.slice(0, 3);
       <h1 class="my-4 inline-block text-4xl font-bold sm:my-8 sm:text-5xl">
       About Me 🖖
       </h1>
-      <!-- <a
+      <a
         target="_blank"
         href="/rss.xml"
         class="inline-block"
@@ -49,7 +49,7 @@ const recentUniversityPosts = sortedUniversityPosts.slice(0, 3);
           class="scale-125 stroke-accent stroke-3 rtl:-rotate-90"
         />
         <span class="sr-only">RSS Feed</span>
-      </a> -->
+      </a>
 
       <p class="mb-4">
         <span class="text-accent">❯</span> <span id="typewriter"></span><span id="cursor" class="animate-pulse">|</span>
