@@ -15,6 +15,8 @@ This is the third part of a series exploring how C, C++, and Rust manage memory 
 
 Part III turns to _representation_: how abstract types become concrete bit patterns, and how polymorphism, the ability to write code that operates on many types, is implemented.
 
+You can discuss this article on [Hacker News](https://news.ycombinator.com/item?id=46500833), [Lobsters](https://lobste.rs/s/gykpyi/who_owns_memory_part_3_how_big_is_your_type) and  Reddit ([r/rust](https://www.reddit.com/r/rust/comments/1q4qe9x/who_owns_the_memory_part_3_how_big_is_your_type/) and [r/programming](https://www.reddit.com/r/programming/comments/1q4qdxa/who_owns_the_memory_part_3_how_big_is_your_type/))
+
 ## Table of Contents
 
 ## Type Layout and Memory Representation
