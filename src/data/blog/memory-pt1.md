@@ -14,7 +14,7 @@ description: "Effective types, storage duration, and aliasing rules in C, C++, a
 
 This is the first article in a $n$-part series exploring how C, C++, and Rust manage memory at a low level. We begin where the hardware does: with bytes. From there, we build up to objects, storage duration, lifetime, and aliasing, the vocabulary required to understand ownership.
 
-You can discuss this article on [Hacker News](https://news.ycombinator.com/item?id=46478032), [Reddit](https://www.reddit.com/r/programming/comments/1q2y2hc/who_owns_the_memory_part_1_what_is_an_object/) and [Lobsters](https://lobste.rs/s/o5e7gm/who_owns_memory_part_1_what_is_object).
+You can discuss this article on [Lobsters](https://lobste.rs/s/o5e7gm/who_owns_memory_part_1_what_is_object), Reddit ([r/rust](https://www.reddit.com/r/rust/comments/1q31j94/who_owns_the_memory_part_1_what_is_an_object/) and [r/programming](https://www.reddit.com/r/programming/comments/1q2y2hc/who_owns_the_memory_part_1_what_is_an_object/)) and [Hacker News](https://news.ycombinator.com/item?id=46478032)
 
 ## Table of contents
 

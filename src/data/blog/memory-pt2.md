@@ -13,7 +13,7 @@ description: "Destructors, RAII, and the ownership question."
 
 In the [first part](https://lukefleed.xyz/posts/who-owns-the-memory-pt1/) of this series, we saw that objects occupy storage, that storage has duration, and that the type system imposes structure on raw bytes. But we have sidestepped a question that dominates systems programming in practice: when heap-allocated memory must be released, who bears responsibility for releasing it?
 
-You can discuss this article on [Hacker News](https://news.ycombinator.com/item?id=46487745) and [Lobsters](https://lobste.rs/s/n9tev4/who_owns_memory_part_2_who_calls_free).
+You can discuss this article on [Lobsters](https://lobste.rs/s/n9tev4/who_owns_memory_part_2_who_calls_free) and [Hacker News](https://news.ycombinator.com/item?id=46487745)
 
 ## Table of Contents
 
