@@ -1012,7 +1012,7 @@ match expr {
 }
 ```
 
-The `.into()` call enables automatic error type conversion via the `From` trait. A function returning `Result<T, MyError>` can use `?` on any `Result` whose error type implements `Into<MyError>`.
+The `From::from(e)` call enables automatic error type conversion. A function returning `Result<T, MyError>` can use `?` on any `Result` whose error type implements `From<OriginalError> for MyError`.
 
 On x86-64, the `?` operator compiles to a test of the discriminant and a conditional jump:
 
