@@ -466,21 +466,31 @@ Which types have niches? Any type that forbids certain bit patterns:
 
 References (`&T`, `&mut T`) forbid null. `NonNull<T>` exists specifically to be a non-null pointer. The `NonZeroU32` type (and its siblings `NonZeroU8`, `NonZeroI64`, etc.) forbid zero. `Box<T>` contains a non-null pointer internally. Function pointers forbid null. `bool` only permits 0 and 1, so 254 other byte values are niches.
 
-The optimization composes. `Option<Box<T>>` uses null for `None`. What about `Option<Option<Box<T>>>`? The outer `Option` needs a niche to represent its `None`, and the inner `Option` already used null for *its* `None`. Can we distinguish outer-`None` from `Some(None)`?
+The optimization composes, but only when niches remain available. `Option<Box<T>>` uses null for `None`. What about `Option<Option<Box<T>>>`? The outer `Option` needs a niche to represent its `None`, but the inner `Option` already consumed the only niche (null) for *its* `None`. Can we distinguish outer-`None` from `Some(None)`?
 
-On x86-64 with 48-bit virtual addresses, pointers have constraints beyond non-nullness. The upper 16 bits must be a sign extension of bit 47. Most user-space pointers have the top bits all zeros (canonical lower-half addresses). The compiler can use a non-canonical address like `0x0000000000000001` (misaligned for any type with alignment > 1) to represent additional `None` variants:
+In principle, the compiler could exploit other invalid bit patterns. On x86-64 with 48-bit virtual addresses, misaligned addresses like `0x0000000000000001` are invalid for `Box<i32>` (which requires 4-byte alignment). The Rustonomicon explicitly leaves enum layout unspecified to permit such optimizations in the future. But as of current rustc, *pointer types expose only the null niche*. Once it is consumed, nesting adds a discriminant:
 
 ```rust
 use std::mem::size_of;
 
 assert_eq!(size_of::<Box<i32>>(), 8);
-assert_eq!(size_of::<Option<Box<i32>>>(), 8);
-assert_eq!(size_of::<Option<Option<Box<i32>>>>(), 8);
+assert_eq!(size_of::<Option<Box<i32>>>(), 8);        // null = None
+assert_eq!(size_of::<Option<Option<Box<i32>>>>(), 16); // no second niche available
 ```
 
-All three types fit in 8 bytes. The compiler found two niches in the pointer: null for the inner `None`, and another invalid address for the outer `None`.
+The first level of `Option` is free. The second level costs 8 bytes (1-byte discriminant + 7 bytes padding to maintain pointer alignment).
 
-For types without niches, the discriminant requires additional space:
+Types with *multiple* niches do compose further. A `bool` occupies one byte but has only two valid bit patterns (0 and 1), leaving 254 niches. The compiler can represent several `None` variants without additional space:
+
+```rust
+use std::mem::size_of;
+
+assert_eq!(size_of::<bool>(), 1);
+assert_eq!(size_of::<Option<bool>>(), 1);           // uses niche value 2
+assert_eq!(size_of::<Option<Option<bool>>>(), 1);   // uses niche value 3
+```
+
+For types without any niches, the discriminant requires additional space from the start:
 
 ```rust
 use std::mem::size_of;
