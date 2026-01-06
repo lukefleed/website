@@ -591,7 +591,7 @@ assert_eq!(size_of::<&[u8]>(), 16);     // wide pointer
 assert_eq!(size_of::<&str>(), 16);      // same representation as &[u8]
 ```
 
-We can examine the actual representation using `std::ptr::metadata`:
+The slice reference carries both pointer and length:
 
 ```rust
 let arr = [1i32, 2, 3, 4, 5];
@@ -698,7 +698,7 @@ Inlining is the most significant loss. When the compiler inlines a function, it 
 
 In C++, modern compilers can sometimes *devirtualize* virtual calls. If the concrete type is visible at the call site (immediately after construction, or when the class is marked `final`), Clang/GCC may replace the indirect call with a direct one. With LTO and `-fwhole-program-vtables`, C++ compilers can devirtualize when only one implementation exists program-wide.
 
-Rust's situation is less favorable. As of 2025, rustc does not provide the metadata LLVM needs for whole-program devirtualization. Even when only a single type implements a trait in the entire binary, trait object calls remain indirect. LLVM can devirtualize in trivial cases where the concrete type is immediately visible (creating a trait object and calling a method in the same basic block), but this is rare in practice. The tracking issue rust-lang/rust#68262 has seen little progress. For now, if you need devirtualization in Rust, use generics or enums, the compiler will not rescue trait objects for you.
+Rust's situation is less favorable. As of 2025, rustc does not provide the metadata LLVM needs for whole-program devirtualization. Even when only a single type implements a trait in the entire binary, trait object calls remain indirect. LLVM can devirtualize in trivial cases where the concrete type is immediately visible (creating a trait object and calling a method in the same basic block), but this is rare in practice. The tracking issue [rust-lang/rust#68262](https://github.com/rust-lang/rust/issues/68262) has seen little progress. For now, if we need devirtualization in Rust, we can use generics or enums, the compiler will not rescue trait objects for us.
 
 Consider a loop summing areas. Here we must be careful: the static and dynamic versions solve *different* problems.
 
