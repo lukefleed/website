@@ -170,11 +170,19 @@ union MyEnumRepr {
 }
 
 #[repr(C)]
-struct MyVariantA { tag: u64, value: u64 }
+struct MyVariantA { tag: MyEnumDiscriminant, value: u32 }
 
 #[repr(C)]
-struct MyVariantB { tag: u64, _pad: u64, value0: f64, _pad2: u64, value1: u64 }
-// ... and so on
+struct MyVariantB { tag: MyEnumDiscriminant, value0: f32, value1: u64 }
+
+#[repr(C)]
+struct MyVariantC { tag: MyEnumDiscriminant, x: u32, y: u8 }
+
+#[repr(C)]
+struct MyVariantD { tag: MyEnumDiscriminant }
+
+#[repr(C)]
+enum MyEnumDiscriminant { A, B, C, D }
 ```
 
 The discriminant size for a fieldless `repr(C)` enum matches the C ABI's enum size, which is implementation-defined. On most platforms, this is `int` (4 bytes), though some ABIs use smaller types for small enums.
@@ -1369,7 +1377,9 @@ C has function pointers, not closures. A function pointer is an address of execu
 
 ```c
 int compare_ints(const void *a, const void *b) {
-    return *(const int*)a - *(const int*)b;
+    int x = *(const int*)a;
+    int y = *(const int*)b;
+    return (x > y) - (x < y);
 }
 
 qsort(array, n, sizeof(int), compare_ints);
