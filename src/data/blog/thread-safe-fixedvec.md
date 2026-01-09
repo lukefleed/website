@@ -268,13 +268,13 @@ We compare our `AtomicFixedVec` against two other implementations:
 
 The first benchmark measure the performance of our **lock-free path**. We configure all vectors with a `bit_width` of 16. Because 16 is a power of two and evenly divides the 64-bit word size, every element is guaranteed to be fully contained within a single `u64` word. This is the best-case scenario for bit-packed atomics. It ensures that all `store` operations can be performed with lock-free CAS loops.
 
-<iframe src="/bench-intvec/atomic_scaling_lock_free_diffuse.html" width="100%" height="550px" style="border: none;"></iframe>
+<iframe src="/bench-intvec/atomic_scaling_lock_free_diffuse/" width="100%" height="550px" style="border: none;"></iframe>
 
 As we can see, all three implementations scale well with increasing thread count. The throughput of `AtomicFixedVec` is very close to that of `sux::AtomicBitFieldVec`, which is expected since both are using similar lock-free CAS loops for this scenario. Both bit-packed vectors have a noticeable dip at two threads, likely due to initial cache coherency overhead, but then scale up effectively with the core count.
 
 The second benchmark tries to stress the **locked path**. We configure the vectors with a `bit_width` of 15. This non-power-of-two width guarantees that a predictable fraction of writes will cross word boundaries. In our case, `(15 + 63) % 64` spanning cases out of 64 offsets, so roughly `14/64` or ~22% will require locking. This forces our `AtomicFixedVec` to use its lock striping mechanism for those spanning writes. In contrast, `sux` will proceed without locking, risking data races but avoiding locking overhead.
 
-<iframe src="/bench-intvec/atomic_scaling_locked_path_diffuse.html" width="100%" height="550px" style="border: none;"></iframe>
+<iframe src="/bench-intvec/atomic_scaling_locked_path_diffuse/" width="100%" height="550px" style="border: none;"></iframe>
 
 This benchmark shows the real cost of correctness. Our `AtomicFixedVec` now shows lower throughput and poorer scaling compared to both the baseline and `sux`. Every write operation that crosses a word boundary (approximately 22% of them in this test) must acquire a lock, execute its two atomic updates, and release the lock. While with lock striping we prevent a single point of serialization, the overhead of the locking protocol itself, especially under contention from multiple threads, is non-trivial. In contrast, `sux` maintains higher throughput by avoiding locks entirely, but at the cost of potentially observing torn writes.
 

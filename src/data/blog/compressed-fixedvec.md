@@ -244,7 +244,7 @@ We can now benchmark the latency of 1 million random access operations on a vect
 
 Our baseline is the smallest standard `Vec<T>` capable of holding the data (`Vec<u8>` for `bit_width <= 8`, etc.). We also include results from [`sux`], [`succinct`], and [`simple-sds-sbwt`] for context. I am not aware of any other Rust crates that implement fixed-width bit-packed integer vectors, so if you know of any, please let me know!
 
-<iframe src="/bench-intvec/fixed_random_access_performance.html" width="100%" height="550px" style="border: none;"></iframe>
+<iframe src="/bench-intvec/fixed_random_access_performance/" width="100%" height="550px" style="border: none;"></iframe>
 
 We can see that for `bit_width` values below 32, the `get_unaligned_unchecked` of our `FixedVec` is almost always faster than the corresponding `Vec<T>` baseline. This is a result of improved cache locality. A 64-byte L1 cache line can hold 64 elements from a `Vec<u8>`. With a `bit_width` of 4, the same cache line holds `(64 * 8) / 4 = 128` elements from our `FixedVec`. This increased density improves the cache hit rate for random access patterns, and the latency reduction from avoiding DRAM access outweighs the instruction cost of the bitwise extraction. For values of `bit_width` above 32, the performance of `FixedVec` are *very slightly* worse than the `Vec<T>` baseline, as the cache locality advantage diminishes. However, the memory savings remain.
 
@@ -427,9 +427,9 @@ high_word_val |= value_w >> remaining_bits_in_first_word;
 
 ## Random Write Performance
 
-As with reads, we can benchmark the latency of 1 million random write operations on a vector containing 10 million elements. The code for the benchmark is available here: [`bench-intvec-writes`].
+As with reads, we can benchmark the latency of 1 million random write operations on a vector containing 10 million elements.
 
-<iframe src="/bench-intvec/random_write_performance.html" width="100%" height="550px" style="border: none;"></iframe>
+<iframe src="/bench-intvec/random_write_performance/" width="100%" height="550px" style="border: none;"></iframe>
 
 Here, the `Vec<T>` baseline is the clear winner across almost all bit-widths. This isn't surprising. A `set` operation in a `Vec<T>` compiles down to a single `MOV` instruction with a simple addressing mode (`[base + index * element_size]`). It's about as fast as the hardware allows.
 
