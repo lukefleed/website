@@ -1502,9 +1502,8 @@ struct __closure_1<'a> {
     ref_y: &'a f64,
 }
 
-impl<'a> FnOnce<(&Point, &Point)> for __closure_1<'a> {
-    type Output = std::cmp::Ordering;
-    extern "rust-call" fn call_once(self, args: (&Point, &Point)) -> Self::Output {
+impl<'a> Fn<(&Point, &Point)> for __closure_1<'a> {
+    extern "rust-call" fn call(&self, args: (&Point, &Point)) -> Self::Output {
         let (a, b) = args;
         let da = ((a.x - *self.ref_x).powi(2) + (a.y - *self.ref_y).powi(2)).sqrt();
         let db = ((b.x - *self.ref_x).powi(2) + (b.y - *self.ref_y).powi(2)).sqrt();
@@ -1514,13 +1513,14 @@ impl<'a> FnOnce<(&Point, &Point)> for __closure_1<'a> {
 
 impl<'a> FnMut<(&Point, &Point)> for __closure_1<'a> {
     extern "rust-call" fn call_mut(&mut self, args: (&Point, &Point)) -> Self::Output {
-        self.call_once(args)
+        Fn::call(&*self, args)
     }
 }
 
-impl<'a> Fn<(&Point, &Point)> for __closure_1<'a> {
-    extern "rust-call" fn call(&self, args: (&Point, &Point)) -> Self::Output {
-        self.call_once(args)
+impl<'a> FnOnce<(&Point, &Point)> for __closure_1<'a> {
+    type Output = std::cmp::Ordering;
+    extern "rust-call" fn call_once(self, args: (&Point, &Point)) -> Self::Output {
+        Fn::call(&self, args)
     }
 }
 ```
