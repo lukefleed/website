@@ -51,7 +51,7 @@ int main(void) {
 }
 ```
 
-The `alignof` operator (C11/C23) returns the required alignment for a type. Accessing an object at an address that violates its alignment is undefined behavior,~~ not because the standard is being pedantic, but because the hardware cannot reliably execute it~~. This allows the compiler to assume aligned access and emit instructions that would
+The `alignof` operator (C11/C23) returns the required alignment for a type. Accessing an object at an address that violates its alignment is undefined behavior,~~not because the standard is being pedantic, but because the hardware cannot reliably execute it~~. This allows the compiler to assume aligned access and emit instructions that would
 trap or produce wrong results on misaligned addresses. On x86-64, misaligned scalar loads work but may cross cache lines; on stricter architectures like ARM, they trap.
 
 Consider this concrete failure case from [Modern C](https://gustedt.gitlabpages.inria.fr/modern-c/):
