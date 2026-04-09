@@ -5,7 +5,7 @@ import IconArrowRight from "@/assets/icons/IconArrowRight.svg";
 import LinkButton from "./LinkButton.astro";
 
 export interface Props {
-  page: Page<any>;
+  page: Page<Record<string, unknown>>;
 }
 
 const { page } = Astro.props;

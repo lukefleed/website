@@ -146,7 +146,7 @@ const recentUniversityPosts = sortedUniversityPosts.slice(0, 3);
     }
   });
 
-  // Typewriter effect
+  // Typewriter effect — cleaned up on navigation to avoid leaking timers
   const phrases = [
     "I'm a mathematician",
     "I'm a computer scientist",
@@ -159,13 +159,22 @@ const recentUniversityPosts = sortedUniversityPosts.slice(0, 3);
     let charIndex = 0;
     let isDeleting = false;
     let isWaitingBeforeDelete = false;
+    let timerId: ReturnType<typeof setTimeout> | null = null;
+    let stopped = false;
+
+    // Cancel all pending timers when navigating away
+    document.addEventListener("astro:before-swap", () => {
+      stopped = true;
+      if (timerId !== null) clearTimeout(timerId);
+    }, { once: true });
 
     function type() {
+      if (stopped) return;
       const currentPhrase = phrases[phraseIndex];
 
       if (isWaitingBeforeDelete) {
-        // Wait 1.5 seconds before starting to delete
-        setTimeout(() => {
+        timerId = setTimeout(() => {
+          if (stopped) return;
           isWaitingBeforeDelete = false;
           isDeleting = true;
           type();
@@ -184,9 +193,8 @@ const recentUniversityPosts = sortedUniversityPosts.slice(0, 3);
       }
 
       if (!isDeleting && charIndex === currentPhrase.length) {
-        // If this is the last phrase, don't delete it
         if (phraseIndex === phrases.length - 1) {
-          return; // Stop here
+          return;
         }
         isWaitingBeforeDelete = true;
         type();
@@ -203,7 +211,7 @@ const recentUniversityPosts = sortedUniversityPosts.slice(0, 3);
       }
 
       const speed = isDeleting ? 50 : 70;
-      setTimeout(type, speed);
+      timerId = setTimeout(type, speed);
     }
 
     type();

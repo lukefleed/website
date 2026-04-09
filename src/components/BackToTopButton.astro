@@ -22,7 +22,8 @@ import IconArrowNarrowUp from "@/assets/icons/IconArrowNarrowUp.svg";
   >
     <span
       id="progress-indicator"
-      class="absolute inset-0 -z-10 block size-14 scale-110 rounded-full bg-transparent md:hidden md:h-8 md:rounded-md"
+      class="absolute inset-0 -z-10 block size-14 scale-110 rounded-full md:hidden md:h-8 md:rounded-md"
+      style="background-image: conic-gradient(var(--accent), var(--accent) var(--scroll-pct, 0%), transparent var(--scroll-pct, 0%))"
     ></span>
     <IconChevronLeft class="inline-block rotate-90 md:hidden" />
     <span class="sr-only text-sm group-hover:text-accent md:not-sr-only">
@@ -57,10 +58,7 @@ import IconArrowNarrowUp from "@/assets/icons/IconArrowNarrowUp.svg";
       const scrollTop = rootElement.scrollTop;
       const scrollPercent = Math.floor((scrollTop / scrollTotal) * 100);
 
-      progressIndicator.style.setProperty(
-        "background-image",
-        `conic-gradient(var(--accent), var(--accent) ${scrollPercent}%, transparent ${scrollPercent}%)`
-      );
+      progressIndicator.style.setProperty("--scroll-pct", scrollPercent + "%");
 
       const isVisible = scrollTop / scrollTotal > 0.3;
 
@@ -82,7 +80,7 @@ import IconArrowNarrowUp from "@/assets/icons/IconArrowNarrowUp.svg";
         });
         ticking = true;
       }
-    });
+    }, { passive: true });
   }
   backToTop();
 </script>

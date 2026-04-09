@@ -26,3 +26,8 @@ pnpm-debug.log*
 # pagefind
 
 public/pagefind
+
+# claude
+.claude
+CLAUDE.md
+skills-lock.json

@@ -120,6 +120,9 @@
   /* ===== Code Blocks & Syntax Highlighting ===== */
   .astro-code {
     @apply flex border bg-(--shiki-light-bg) text-(--shiki-light) outline-border [&_span]:text-(--shiki-light);
+    /* Skip rendering of off-screen code blocks on large posts */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 300px;
   }
 
   html[data-theme="dark"] .astro-code {

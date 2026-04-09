@@ -168,53 +168,47 @@ const nextPost =
 </Layout>
 
 <script is:inline data-astro-rerun>
-  /** Create a progress indicator
-   *  at the top */
+  /** Create a progress indicator at the top */
   function createProgressBar() {
-    // Create the main container div
     const progressContainer = document.createElement("div");
     progressContainer.className =
       "progress-container fixed top-0 z-10 h-1 w-full bg-background";
 
-    // Create the progress bar div
     const progressBar = document.createElement("div");
     progressBar.className = "progress-bar h-1 w-0 bg-accent";
     progressBar.id = "myBar";
 
-    // Append the progress bar to the progress container
     progressContainer.appendChild(progressBar);
-
-    // Append the progress container to the document body or any other desired parent element
     document.body.appendChild(progressContainer);
   }
-  createProgressBar();
 
-  /** Update the progress bar
-   *  when user scrolls */
+  /** Update the progress bar when user scrolls.
+   *  Throttled with rAF and cached DOM reference. */
   function updateScrollProgress() {
+    const myBar = document.getElementById("myBar");
+    if (!myBar) return;
+
+    let ticking = false;
     document.addEventListener("scroll", () => {
-      const winScroll =
-        document.body.scrollTop || document.documentElement.scrollTop;
-      const height =
-        document.documentElement.scrollHeight -
-        document.documentElement.clientHeight;
-      const scrolled = (winScroll / height) * 100;
-      if (document) {
-        const myBar = document.getElementById("myBar");
-        if (myBar) {
-          myBar.style.width = scrolled + "%";
-        }
+      if (!ticking) {
+        requestAnimationFrame(() => {
+          const scrollTop =
+            document.body.scrollTop || document.documentElement.scrollTop;
+          const scrollHeight =
+            document.documentElement.scrollHeight -
+            document.documentElement.clientHeight;
+          myBar.style.width = (scrollTop / scrollHeight) * 100 + "%";
+          ticking = false;
+        });
+        ticking = true;
       }
-    });
+    }, { passive: true });
   }
-  updateScrollProgress();
 
   /** Attaches links to headings in the document,
    *  allowing sharing of sections easily */
   function addHeadingLinks() {
-    const headings = Array.from(
-      document.querySelectorAll("h2, h3, h4, h5, h6")
-    );
+    const headings = document.querySelectorAll("h2, h3, h4, h5, h6");
     for (const heading of headings) {
       heading.classList.add("group");
       const link = document.createElement("a");
@@ -224,63 +218,65 @@ const nextPost =
 
       const span = document.createElement("span");
       span.ariaHidden = "true";
-      span.innerText = "#";
+      span.textContent = "#";
       link.appendChild(span);
       heading.appendChild(link);
     }
   }
-  addHeadingLinks();
 
   /** Attaches copy buttons to code blocks in the document,
-   * allowing users to copy code easily. */
+   *  allowing users to copy code easily.
+   *  --file-name-offset is always set by the Shiki fileName transformer,
+   *  so no getComputedStyle() needed. */
   function attachCopyButtons() {
     const copyButtonLabel = "Copy";
-    const codeBlocks = Array.from(document.querySelectorAll("pre"));
+    const codeBlocks = document.querySelectorAll("pre");
+    if (codeBlocks.length === 0) return;
+
+    // --file-name-offset is always set on <pre> by transformerFileName
+    const topClass = "top-(--file-name-offset)";
 
     for (const codeBlock of codeBlocks) {
       const wrapper = document.createElement("div");
       wrapper.style.position = "relative";
 
-      // Check if --file-name-offset custom property exists
-      const computedStyle = getComputedStyle(codeBlock);
-      const hasFileNameOffset =
-        computedStyle.getPropertyValue("--file-name-offset").trim() !== "";
-
-      // Determine the top positioning class
-      const topClass = hasFileNameOffset
-        ? "top-(--file-name-offset)"
-        : "-top-3";
-
       const copyButton = document.createElement("button");
       copyButton.className = `copy-code absolute end-3 ${topClass} rounded bg-muted border border-muted px-2 py-1 text-xs leading-4 text-foreground font-medium`;
-      copyButton.innerHTML = copyButtonLabel;
+      copyButton.textContent = copyButtonLabel;
       codeBlock.setAttribute("tabindex", "0");
       codeBlock.appendChild(copyButton);
 
-      // wrap codebock with relative parent element
-      codeBlock?.parentNode?.insertBefore(wrapper, codeBlock);
+      codeBlock.parentNode.insertBefore(wrapper, codeBlock);
       wrapper.appendChild(codeBlock);
 
       copyButton.addEventListener("click", async () => {
-        await copyCode(codeBlock, copyButton);
+        const code = codeBlock.querySelector("code");
+        const text = code?.innerText;
+        await navigator.clipboard.writeText(text ?? "");
+        copyButton.textContent = "Copied";
+        setTimeout(() => {
+          copyButton.textContent = copyButtonLabel;
+        }, 700);
       });
     }
-
-    async function copyCode(block, button) {
-      const code = block.querySelector("code");
-      const text = code?.innerText;
-
-      await navigator.clipboard.writeText(text ?? "");
-
-      // visual feedback that task is completed
-      button.innerText = "Copied";
-
-      setTimeout(() => {
-        button.innerText = copyButtonLabel;
-      }, 700);
-    }
   }
-  attachCopyButtons();
+
+  // 1. IMMEDIATE: progress bar (tiny DOM op)
+  createProgressBar();
+  // 2. IMMEDIATE: throttled scroll listener
+  updateScrollProgress();
+  // 3. DEFERRED: heading links (next animation frame)
+  requestAnimationFrame(() => {
+    addHeadingLinks();
+  });
+  // 4. DEFERRED: copy buttons (idle time, heaviest operation)
+  if ("requestIdleCallback" in window) {
+    requestIdleCallback(() => {
+      attachCopyButtons();
+    }, { timeout: 2000 });
+  } else {
+    setTimeout(attachCopyButtons, 100);
+  }
 
   /* Go to page start after page swap */
   document.addEventListener("astro:after-swap", () =>
