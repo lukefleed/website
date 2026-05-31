@@ -159,7 +159,6 @@ The compiler does not track which pointers own and which merely observe. We can 
 
 C++ gives us the machinery for safe resource management. Using that machinery is a choice the language cannot enforce. A codebase mixing raw pointers, `unique_ptr`, `shared_ptr`, and manual `new`/`delete` requires reasoning about ownership at every function boundary. The answer lives in programmers' heads, in comments, in coding standards. This is better than C, where even the machinery does not exist. But it remains insufficient to eliminate memory safety bugs from large codebases.
 
-
 ### Rust: Ownership in the Type System
 
 Rust takes the RAII pattern and embeds it into the type system as a non-negotiable rule: every value has exactly one owner, and when that owner goes out of scope, the value is dropped. The compiler verifies this property statically, and no amount of programmer intent can bypass it.
@@ -544,7 +543,6 @@ The guard's lifetime tied it to the borrowed data. When the guard dropped, it jo
 
 The correct design principle is that unsafe code cannot rely on destructors running to maintain safety invariants. Safe abstractions must account for the possibility that destructors are skipped. The standard library's `Vec::drain` is a good example. Draining a vector moves elements out one at a time. If the drain iterator is forgotten mid-iteration, some elements have been moved out and the vector's length is wrong. Rather than leaving the vector in an inconsistent state, `Drain` sets the vector's length to zero at the start of iteration. If `Drain` is forgotten, the remaining elements leak (their destructors do not run, their memory is not reused), but the vector is in a valid state (empty). Leaks amplify leaks, but undefined behavior does not occur.
 
-
 ## Beyond RAII
 
 We have built a comprehensive picture of ownership. Rust makes ownership tracking mandatory and statically verified. Yet even Rust's model has limits.
@@ -640,7 +638,7 @@ But defer has an advantage in simplicity. We do not need to define a type, imple
 
 ### Linear Types: Enforcing Explicit Consumption
 
-The transaction example shows a gap in RAII's guarantees. RAII ensures that cleanup happens, but not that we made an explicit decision about *which* cleanup to perform. The destructor chooses for us, silently.
+The transaction example shows a gap in RAII's guarantees. RAII ensures that cleanup happens, but not that we made an explicit decision about _which_ cleanup to perform. The destructor chooses for us, silently.
 
 Linear types close this gap. A linear type must be explicitly consumed; it cannot simply go out of scope. If we try to let a linear value fall out of scope without passing it to a consuming function, the compiler rejects the program.
 
@@ -673,7 +671,7 @@ The transaction cannot be ignored. Forgetting to decide is a compile-time error,
 
 ### Why Rust Does Not Have Linear Types
 
-Rust's types are affine, not linear. An affine type can be used *at most* once; a linear type must be used *exactly* once. The difference matters when panics unwind the stack.
+Rust's types are affine, not linear. An affine type can be used _at most_ once; a linear type must be used _exactly_ once. The difference matters when panics unwind the stack.
 
 Rust permits silent dropping because `Drop::drop` must always be callable. When a scope exits, when a panic unwinds, when we reassign a variable, Rust calls `drop`. The entire language assumes that any value can be dropped at any time.
 
@@ -683,8 +681,7 @@ Rust chose affine types, accepting that the compiler cannot enforce explicit con
 
 ## When Things Go Wrong
 
-RAII ensures cleanup happens when scope ends. But it says nothing about how we *signal* failures. When a function cannot complete its task, it must communicate this to the caller, and the caller must have a chance to respond. The three languages take fundamentally different approaches to this problem, and the differences reveal deep assumptions about what error handling should look like.
-
+RAII ensures cleanup happens when scope ends. But it says nothing about how we _signal_ failures. When a function cannot complete its task, it must communicate this to the caller, and the caller must have a chance to respond. The three languages take fundamentally different approaches to this problem, and the differences reveal deep assumptions about what error handling should look like.
 
 ### C: Return Codes and errno
 
@@ -795,7 +792,6 @@ The `longjmp` function never returns to its caller. Control transfers directly t
 
 An `int` return code provides limited information. We can distinguish success from failure, and `errno` codes like `ENOENT` or `EACCES` give some context, but rich error information requires either out-parameters, custom error structs, or global state.
 
-
 ### C++: Exceptions and Hidden Control Flow
 
 C++ exceptions address the propagation problem directly. When a function cannot fulfill its contract, it executes `throw` with an exception object. Control transfers immediately to the nearest enclosing `catch` block whose type matches the thrown object, skipping all intermediate code but calling destructors along the way.
@@ -823,7 +819,7 @@ void process() {
 
 The `try` block delimits code where exceptions may be caught. The `catch` clause specifies a type; if the thrown object's type matches (including derived classes), that handler executes. Multiple `catch` clauses can handle different exception types; the runtime tries them in order and executes the first match. Catching by const reference avoids copying and preserves polymorphism for exception hierarchies.
 
-When an exception propagates through a scope, the compiler ensures that destructors run for all local objects in reverse order of construction. This is *stack unwinding*. RAII objects release their resources automatically on error paths:
+When an exception propagates through a scope, the compiler ensures that destructors run for all local objects in reverse order of construction. This is _stack unwinding_. RAII objects release their resources automatically on error paths:
 
 ```cpp
 void safe_operation() {
@@ -834,7 +830,7 @@ void safe_operation() {
 
 The destructor runs regardless of how we exit the scope. We wrote no cleanup code; the compiler inserted it.
 
-Here lies the problem with exceptions: *every function call is a potential exit point*. In the code above, if `might_throw()` throws, control leaves `safe_operation` immediately. This is convenient when we want automatic cleanup. It is treacherous when we are maintaining invariants across multiple operations.
+Here lies the problem with exceptions: _every function call is a potential exit point_. In the code above, if `might_throw()` throws, control leaves `safe_operation` immediately. This is convenient when we want automatic cleanup. It is treacherous when we are maintaining invariants across multiple operations.
 
 ```cpp
 void transfer(Account& from, Account& to, int amount) {
@@ -843,7 +839,7 @@ void transfer(Account& from, Account& to, int amount) {
 }
 ```
 
-If `deposit` throws after `withdraw` succeeds, the money has left `from` but never arrived at `to`. The program is in an inconsistent state. The *strong exception guarantee* (if an operation fails, state is unchanged) requires explicit effort:
+If `deposit` throws after `withdraw` succeeds, the money has left `from` but never arrived at `to`. The program is in an inconsistent state. The _strong exception guarantee_ (if an operation fails, state is unchanged) requires explicit effort:
 
 ```cpp
 void transfer(Account& from, Account& to, int amount) {
@@ -863,8 +859,7 @@ Destructors must not throw. Since C++11, destructors are implicitly `noexcept`. 
 
 The `noexcept` specifier declares that a function does not throw. If it does throw, `std::terminate` is called rather than unwinding. Move constructors and move assignment operators should be `noexcept` when possible; this enables `std::vector` to move elements during reallocation rather than copying them. If a move constructor might throw, the vector must copy to preserve the strong exception guarantee. Copying is dramatically slower for types with expensive copy operations. The performance of your vector depends on whether your move constructor is marked `noexcept`.
 
-The *exception safety guarantees* classify behavior when exceptions occur. The *nothrow* guarantee means the function never throws; destructors and swap functions provide this. The *strong* guarantee means if an exception is thrown, the program state is unchanged; `std::vector::push_back` provides this. The *basic* guarantee means if an exception is thrown, the program is in a valid state with no leaks, but the state may have changed. Every function in a C++ codebase implicitly has one of these guarantees, whether the author thought about it or not.
-
+The _exception safety guarantees_ classify behavior when exceptions occur. The _nothrow_ guarantee means the function never throws; destructors and swap functions provide this. The _strong_ guarantee means if an exception is thrown, the program state is unchanged; `std::vector::push_back` provides this. The _basic_ guarantee means if an exception is thrown, the program is in a valid state with no leaks, but the state may have changed. Every function in a C++ codebase implicitly has one of these guarantees, whether the author thought about it or not.
 
 ### C++23: std::expected and the Missing Operator
 
@@ -986,7 +981,6 @@ Data wrapper_for_exception_code() {
 
 Mixing styles is awkward but inevitable. Real codebases will contain both patterns indefinitely. The boundary code is boilerplate that adds nothing but conversion overhead.
 
-
 ### Rust: Result and the ? Operator
 
 Rust represents recoverable errors as values. Operations that can fail return `Result<T, E>`, and the type system requires handling both possibilities.
@@ -1037,7 +1031,6 @@ fn get_username(id: UserId) -> Option<String> {
 
 The same syntax handles both "might fail with error" (`Result`) and "might be absent" (`Option`). Conversion between them is explicit: `result.ok()` discards the error to produce an `Option`, while `option.ok_or(err)` attaches an error to produce a `Result`.
 
-
 ### Panics and Unwinding
 
 Panics handle unrecoverable errors: violated assertions, out-of-bounds access, explicit `panic!()` calls. By default, panics unwind the stack, calling `Drop` implementations for local values. The mechanism uses platform unwinding libraries, the same infrastructure as C++ exceptions.
@@ -1063,7 +1056,6 @@ A panic reaching an `extern "C"` boundary is undefined behavior. Rust code that 
 
 The distinction between `Result` and panic corresponds to recoverable versus unrecoverable errors. A missing file is recoverable: try a different path, prompt the user, report and continue. An index out of bounds is a bug: assumptions are violated, continuing risks corruption. Recoverable errors return `Result`. Bugs panic. The type system encodes this distinction.
 
-
 ### Exception Safety Through Control Flow
 
 The `?` operator achieves exception safety through normal control flow. When `?` encounters an error, it returns from the function. RAII objects drop as part of that return. The compiler generates the same cleanup code for early returns via `?` as for normal returns.
@@ -1081,7 +1073,6 @@ If `might_fail()` returns `Err`, the function returns early. Before returning, `
 Every potential exit point is visible in the source. The `?` marks where control might leave. There are no hidden exits, no invisible propagation. We can read the function and see exactly where early returns occur. The C++ exception model hides exit points; the Rust model makes them explicit while keeping them syntactically light.
 
 Rust code achieves the basic exception safety guarantee automatically: early returns via `?` release all local resources. The strong guarantee requires the same care as in C++; modifying state before a fallible operation requires rollback logic on error. But the explicit control flow makes reasoning about state easier.
-
 
 ### Panic Safety in Unsafe Code
 
@@ -1104,7 +1095,7 @@ impl<T: Clone> Vec<T> {
 }
 ```
 
-If `clone()` panics after `set_len`, the vector claims more initialized elements than exist. When it drops, it calls `drop` on uninitialized memory. The fix is to update length *after* initialization, or use a guard:
+If `clone()` panics after `set_len`, the vector claims more initialized elements than exist. When it drops, it calls `drop` on uninitialized memory. The fix is to update length _after_ initialization, or use a guard:
 
 ```rust
 struct SetLenOnDrop<'a, T> {
@@ -1138,10 +1129,7 @@ impl<T: Clone> Vec<T> {
 }
 ```
 
-The guard tracks successfully initialized elements. If `clone()` panics, the guard drops, setting the vector's length to the count of *actually* initialized elements. The invariant holds across the panic. Safe Rust cannot violate memory safety through panics. Unsafe code must maintain invariants across every potential panic point.
-
-
-
+The guard tracks successfully initialized elements. If `clone()` panics, the guard drops, setting the vector's length to the count of _actually_ initialized elements. The invariant holds across the panic. Safe Rust cannot violate memory safety through panics. Unsafe code must maintain invariants across every potential panic point.
 
 ## Move Semantics
 
@@ -1172,7 +1160,7 @@ The overhead becomes prohibitive when values pass through function boundaries re
 
 ### The Shallow Copy Escape
 
-We can observe however that when we pass a vector to a function that consumes it, the caller no longer needs its copy. The bytes in the caller's stack frame become dead immediately after the call. If we could somehow *transfer* ownership without physically duplicating the heap data, we would get the clarity of value semantics with the efficiency of pointer passing.
+We can observe however that when we pass a vector to a function that consumes it, the caller no longer needs its copy. The bytes in the caller's stack frame become dead immediately after the call. If we could somehow _transfer_ ownership without physically duplicating the heap data, we would get the clarity of value semantics with the efficiency of pointer passing.
 
 This is exactly what move semantics provide. Instead of copying the entire data structure, we copy only the struct (the pointer, length, and capacity), then invalidate the source somehow so it does not attempt cleanup.
 
@@ -1327,7 +1315,7 @@ vector& operator=(vector&& other) noexcept {
 
 The self-assignment check is necessary because `std::move` can be applied to any lvalue, including the left-hand side of the assignment itself (though this would be perverse).
 
-The destructor of the moved-from object still runs. Move semantics transfer ownership of *resources*, but the source object continues to exist until its scope ends. The moved-from state must be valid enough for the destructor to execute safely. For `vector`, that means null pointer and zero lengths,the destructor checks for null before freeing, or simply has no work to do.
+The destructor of the moved-from object still runs. Move semantics transfer ownership of _resources_, but the source object continues to exist until its scope ends. The moved-from state must be valid enough for the destructor to execute safely. For `vector`, that means null pointer and zero lengths,the destructor checks for null before freeing, or simply has no work to do.
 
 The `noexcept` specification on move constructors matters for optimization. `std::vector` needs to relocate elements when it grows. If the element type's move constructor is `noexcept`, the vector can move elements to the new buffer. If it might throw, the vector must copy instead to preserve the strong exception guarantee. If an exception occurs during relocation, the original vector must remain intact. The difference can be dramatic for vectors of vectors.
 
@@ -1335,11 +1323,11 @@ The `noexcept` specification on move constructors matters for optimization. `std
 
 C++11 refined the notion of value categories beyond the simple lvalue/rvalue split. We have three categories:
 
-* An **lvalue** designates an object with identity that persists beyond a single expression. Variables, function returns by reference, dereferenced pointers. The address can be taken.
+- An **lvalue** designates an object with identity that persists beyond a single expression. Variables, function returns by reference, dereferenced pointers. The address can be taken.
 
-* A **prvalue** (pure rvalue) is a temporary with no identity. Literals, function returns by value (before binding), results of arithmetic expressions. These initialize objects or compute values, but have no persistent address.
+- A **prvalue** (pure rvalue) is a temporary with no identity. Literals, function returns by value (before binding), results of arithmetic expressions. These initialize objects or compute values, but have no persistent address.
 
-* An **xvalue** (expiring value) has identity but can be moved from. The result of `std::move()`, the result of a cast to rvalue reference, the return value of a function returning `T&&`. The object exists, has an address, but we have permission to transfer its resources.
+- An **xvalue** (expiring value) has identity but can be moved from. The result of `std::move()`, the result of a cast to rvalue reference, the return value of a function returning `T&&`. The object exists, has an address, but we have permission to transfer its resources.
 
 Overload resolution uses these categories:
 
@@ -1364,7 +1352,7 @@ This machinery operates entirely at compile time. By the time we reach machine c
 
 We have seen that in C++ rvalue references enable overloading, move constructors transfer resources, `std::move` casts to rvalue. But we glossed over a critical detail. After a move, what happens to the source object?
 
-The source object still exists. It has a name, an address, a type. The destructor will run when it goes out of scope. We can call methods on it, read its fields, pass it to functions. The move constructor transferred its *resources*, but the object itself remains.
+The source object still exists. It has a name, an address, a type. The destructor will run when it goes out of scope. We can call methods on it, read its fields, pass it to functions. The move constructor transferred its _resources_, but the object itself remains.
 
 The C++ standard describes moved-from objects as being in a _valid but unspecified state_. Here _Valid_ means the object satisfies the invariants of its type sufficiently to be destroyed and to have certain operations performed on it (typically assignment and, for some types, queries like `empty()`). _Unspecified_ means we cannot know what values its members hold without inspecting them.
 
@@ -1428,6 +1416,7 @@ std::cout << "After move, a1.s = " << std::quoted(a1.s)
 ```
 
 Output:
+
 ```
 Before move, a1.s = "test" a1.k = -1
 After move, a1.s = "" a1.k = 0
@@ -1439,10 +1428,9 @@ The fundamental issue here is that C++ chose to preserve the moved-from object's
 
 Static analyzers and compilers can sometimes detect use-after-move, but they cannot do so reliably in all cases. The analysis is flow-sensitive and context-dependent, and function boundaries obscure the dataflow. A function that takes `T&&` might move from its parameter, or it might not, the caller cannot tell from the signature alone.
 
-
 ### Rust: Moves Without Ghosts
 
-Rust takes a different approach entirely. When a value moves, the source binding becomes invalid. Not valid but unspecified, *invalid*. The compiler rejects any subsequent use:
+Rust takes a different approach entirely. When a value moves, the source binding becomes invalid. Not valid but unspecified, _invalid_. The compiler rejects any subsequent use:
 
 ```rust
 fn process(data: Vec<i32>);
@@ -1515,7 +1503,7 @@ fn example(condition: bool) {
 
 The compiler cannot statically determine which branch executes, so it conservatively assumes `v` might be uninitialized. This occasionally forces us to restructure code or use `Option<T>` to represent _maybe moved_ states explicitly.
 
-For cases where the compiler cannot determine initialization statically, Rust uses *drop flags*. These are runtime boolean values, typically stored on the stack, that track whether a value has been moved. When the variable goes out of scope, the generated code checks the flag before calling the destructor:
+For cases where the compiler cannot determine initialization statically, Rust uses _drop flags_. These are runtime boolean values, typically stored on the stack, that track whether a value has been moved. When the variable goes out of scope, the generated code checks the flag before calling the destructor:
 
 ```rust
 fn example(condition: bool) {
@@ -1536,9 +1524,9 @@ What we cannot do in safe Rust is observe a moved-from binding. The asymmetry wi
 
 We have been speaking of "move" as if it were a single concept, but Rust distinguishes three related operations: implicit copy, move, and explicit clone. Understanding when each applies requires understanding what the type system knows about the data.
 
-An `i32` is 4 bytes. When we write `let y = x` where `x: i32`, the compiler generates a `mov` instruction that copies those 4 bytes. After the assignment, both `x` and `y` hold independent copies of the same value. We can use both. This is a *copy*.
+An `i32` is 4 bytes. When we write `let y = x` where `x: i32`, the compiler generates a `mov` instruction that copies those 4 bytes. After the assignment, both `x` and `y` hold independent copies of the same value. We can use both. This is a _copy_.
 
-A `Vec<i32>` is 24 bytes on the stack (pointer, length, capacity), but those 24 bytes control an arbitrarily large heap allocation. When we write `let y = x` where `x: Vec<i32>`, the compiler generates the same kind of `mov` instructions to copy those 24 bytes. But now both `x` and `y` would point to the same heap allocation. If we allowed both to be used, we would have aliasing, and when both go out of scope, we would have double-free. So after the assignment, `x` is invalidated. This is a *move*.
+A `Vec<i32>` is 24 bytes on the stack (pointer, length, capacity), but those 24 bytes control an arbitrarily large heap allocation. When we write `let y = x` where `x: Vec<i32>`, the compiler generates the same kind of `mov` instructions to copy those 24 bytes. But now both `x` and `y` would point to the same heap allocation. If we allowed both to be used, we would have aliasing, and when both go out of scope, we would have double-free. So after the assignment, `x` is invalidated. This is a _move_.
 
 At the machine level, copy and move are identical. Both copy the bytes that constitute the value. The difference is in what the compiler permits afterward. For `Copy` types, the source remains valid. For non-`Copy` types, the source is invalidated.
 
@@ -1566,7 +1554,7 @@ error[E0204]: the trait `Copy` cannot be implemented for this type
   |                -------- this field does not implement `Copy`
 ```
 
-C++ has a parallel concept in *trivially copyable* types. The C++ standard defines a trivially copyable class as one where each eligible copy constructor, move constructor, copy assignment operator, and move assignment operator is trivial, and the destructor is trivial and non-deleted. "Trivial" here means the compiler-generated default does the right thing, which for these operations means bitwise copy. A `struct` containing only integers and other trivially copyable types is trivially copyable.
+C++ has a parallel concept in _trivially copyable_ types. The C++ standard defines a trivially copyable class as one where each eligible copy constructor, move constructor, copy assignment operator, and move assignment operator is trivial, and the destructor is trivial and non-deleted. "Trivial" here means the compiler-generated default does the right thing, which for these operations means bitwise copy. A `struct` containing only integers and other trivially copyable types is trivially copyable.
 
 The difference is enforcement. In C++, `std::is_trivially_copyable_v<T>` is a compile-time query we can use in `static_assert` or SFINAE, but the language does not prevent us from memcpy-ing a non-trivially-copyable object. We might get away with it if the object has no internal pointers or virtual functions. We might corrupt memory if it does. In Rust, attempting to derive `Copy` on a non-qualifying type is a hard error.
 
@@ -1592,11 +1580,11 @@ One subtlety: Rust's `clone()` is not always a deep copy in the intuitive sense.
 
 We have seen that moving a value copies its bytes from source to destination. For a 24-byte `Vec` struct, this means three 8-byte writes. But what about returning a `Vec` from a function? Naively, we might expect: the function constructs a `Vec` in its stack frame, then on return, the `Vec` is moved to the caller's stack frame, then the caller receives the returned value. This would mean writing those 24 bytes twice.
 
-The answer to whether we can avoid this lies in how function returns work at the ABI level. The Itanium C++ ABI, which governs calling conventions on most Unix-like systems, distinguishes between *trivial* and *non-trivial* return types. A type is non-trivial for purposes of calls if it has a non-trivial destructor or a non-trivial copy or move constructor. For non-trivial return types, the ABI specifies that the caller passes an address as an implicit parameter, and the callee constructs the return value directly into this address.
+The answer to whether we can avoid this lies in how function returns work at the ABI level. The Itanium C++ ABI, which governs calling conventions on most Unix-like systems, distinguishes between _trivial_ and _non-trivial_ return types. A type is non-trivial for purposes of calls if it has a non-trivial destructor or a non-trivial copy or move constructor. For non-trivial return types, the ABI specifies that the caller passes an address as an implicit parameter, and the callee constructs the return value directly into this address.
 
 The Itanium ABI goes further. The address passed need not point to temporary memory on the caller's stack. Copy elision may cause it to point anywhere: to a local variable's storage, to global memory, to heap-allocated memory. The pointer is passed as if it were the first parameter in the function prototype, preceding all other parameters including `this`. If the return type has a non-trivial destructor, the caller is responsible for destroying the object after, and only after, the callee returns normally. If an exception is thrown after construction but before the return completes, the callee must destroy the return value before propagating the exception.
 
-This machinery enables what C++ calls *copy elision*. The returned object is constructed directly in its final location. Two forms are commonly discussed:
+This machinery enables what C++ calls _copy elision_. The returned object is constructed directly in its final location. Two forms are commonly discussed:
 
 **RVO (Return Value Optimization)** applies when we return a prvalue, a temporary with no name:
 
@@ -1622,11 +1610,11 @@ Here the compiler can allocate `v` directly in the caller-provided space from th
 
 Before C++17, both forms of elision were permitted but not guaranteed. A conforming compiler could choose not to elide, and the program would fall back to copy or move constructors. Code relying on elision for correctness, such as returning a non-copyable non-movable type, was non-portable.
 
-C++17 changed this for prvalues through a reformulation of value categories. The standard now specifies that prvalues are not *materialized* until needed. A prvalue does not create a temporary object; it initializes a target object directly. The C++ standard states that the materialization of a temporary object is generally delayed as long as possible to avoid creating unnecessary temporary objects. The result is *guaranteed copy elision* for prvalues. The statement `std::vector<int> v = make_vector();` constructs the vector directly into `v`, mandated by the standard rather than left as an optional optimization.
+C++17 changed this for prvalues through a reformulation of value categories. The standard now specifies that prvalues are not _materialized_ until needed. A prvalue does not create a temporary object; it initializes a target object directly. The C++ standard states that the materialization of a temporary object is generally delayed as long as possible to avoid creating unnecessary temporary objects. The result is _guaranteed copy elision_ for prvalues. The statement `std::vector<int> v = make_vector();` constructs the vector directly into `v`, mandated by the standard rather than left as an optional optimization.
 
 NRVO remains optional. The standard permits but does not require it. In practice, every major compiler performs NRVO when control flow permits. Multiple return statements returning different named variables typically defeat NRVO because the compiler cannot know at the function's entry which variable will be returned.
 
-How does this relate to Rust? Rust does not have *copy elision* as a named language concept because the problem is different. Rust moves are defined as bitwise copies that invalidate the source. There is no move constructor, no user code that might run, no observable side effects to elide. Moving a `Vec` copies 24 bytes regardless of context.
+How does this relate to Rust? Rust does not have _copy elision_ as a named language concept because the problem is different. Rust moves are defined as bitwise copies that invalidate the source. There is no move constructor, no user code that might run, no observable side effects to elide. Moving a `Vec` copies 24 bytes regardless of context.
 
 Rust does perform the same underlying ABI-level optimization. When a function returns a value that cannot fit in registers, the caller passes a hidden pointer in `rdi` (System V) or `rcx` (Microsoft x64), and the callee writes directly to that location. But Rust does not need language-level elision rules because there is no observable difference. Bitwise copy is bitwise copy; constructing directly into the destination versus constructing locally and then copying produces identical bit patterns.
 
@@ -1648,13 +1636,13 @@ The consequence is that returning large values by value in Rust is not expensive
 
 ## Smart Pointers and Reference Counting
 
-Move semantics solve the problem of transferring exclusive ownership efficiently. But some data structures cannot express their sharing patterns through exclusive ownership alone. A graph where multiple edges reference the same node, a cache that outlives any single user, a callback that must remain valid for multiple callers: these require *shared* ownership, where the resource is released only when the last owner disappears.
+Move semantics solve the problem of transferring exclusive ownership efficiently. But some data structures cannot express their sharing patterns through exclusive ownership alone. A graph where multiple edges reference the same node, a cache that outlives any single user, a callback that must remain valid for multiple callers: these require _shared_ ownership, where the resource is released only when the last owner disappears.
 
 We have seen how C++ and Rust handle exclusive heap ownership through `unique_ptr` and `Box`. The move semantics we examined apply directly: `unique_ptr` leaves a nullptr after move, `Box` leaves no valid binding at all. Now we turn to the harder problem of shared ownership, where multiple owners must coordinate to determine when deallocation occurs.
 
 ### Shared Ownership: `shared_ptr`
 
-When multiple parts of a program need to share ownership of heap-allocated data, we need reference counting. C++'s `shared_ptr` implements this with a *control block*: a separate heap allocation that stores metadata about the shared object.
+When multiple parts of a program need to share ownership of heap-allocated data, we need reference counting. C++'s `shared_ptr` implements this with a _control block_: a separate heap allocation that stores metadata about the shared object.
 
 A typical `shared_ptr<T>` contains two pointers: one to the managed object (`T*`), and one to the control block. The control block contains:
 
@@ -1767,9 +1755,9 @@ Using `Relaxed` for the decrement would allow the deallocating thread to see sta
 
 An `Arc` internally holds a raw pointer to the heap allocation. A naive definition might use `*mut ArcInner<T>`, but this creates two problems that `NonNull<T>` and `PhantomData<T>` solve.
 
-Raw pointers are *invariant* in their type parameter. If we have an `Arc<&'static str>`, we should be able to use it where an `Arc<&'a str>` is expected (assuming `'static: 'a`), because a longer-lived reference can substitute for a shorter-lived one. But `*mut T` does not allow this substitution. `NonNull<T>` is a pointer wrapper that is *covariant* in `T`, restoring the expected subtyping relationship.
+Raw pointers are _invariant_ in their type parameter. If we have an `Arc<&'static str>`, we should be able to use it where an `Arc<&'a str>` is expected (assuming `'static: 'a`), because a longer-lived reference can substitute for a shorter-lived one. But `*mut T` does not allow this substitution. `NonNull<T>` is a pointer wrapper that is _covariant_ in `T`, restoring the expected subtyping relationship.
 
-The second problem concerns the drop checker. When the compiler analyzes whether a type can be safely dropped, it needs to know what the type logically owns. A raw pointer carries no ownership information; the compiler assumes `*mut T` does not own a `T`. But `Arc<T>` *does* own a `T`, at least when it is the last owner. If we do not communicate this to the compiler, code that should be rejected might compile:
+The second problem concerns the drop checker. When the compiler analyzes whether a type can be safely dropped, it needs to know what the type logically owns. A raw pointer carries no ownership information; the compiler assumes `*mut T` does not own a `T`. But `Arc<T>` _does_ own a `T`, at least when it is the last owner. If we do not communicate this to the compiler, code that should be rejected might compile:
 
 ```rust
 fn bad<'a>(arc: Arc<&'a str>) {
@@ -1794,7 +1782,7 @@ This is still a single pointer in size, 8 bytes. `PhantomData` is a zero-sized t
 
 ### Weak References and the Control Block Lifetime
 
-A `weak_ptr` or `Weak` does not keep the managed object alive. It holds a pointer to the control block (or inner allocation), not to the object itself. When we attempt to *upgrade* a weak reference to a strong one, the operation must atomically check whether the object still exists and, if so, increment the strong count before another thread can decrement it to zero.
+A `weak_ptr` or `Weak` does not keep the managed object alive. It holds a pointer to the control block (or inner allocation), not to the object itself. When we attempt to _upgrade_ a weak reference to a strong one, the operation must atomically check whether the object still exists and, if so, increment the strong count before another thread can decrement it to zero.
 
 Consider the race: thread A holds the last `shared_ptr` and is about to drop it. Thread B holds a `weak_ptr` and calls `lock()`. If B reads the strong count as 1, then A decrements it to 0 and deallocates, then B increments it to 1, we have a use-after-free. The upgrade must be atomic with respect to the decrement.
 

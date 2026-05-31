@@ -7,6 +7,7 @@ import Socials from "@/components/Socials.astro";
 import LinkButton from "@/components/LinkButton.astro";
 import Card from "@/components/Card.astro";
 import Hr from "@/components/Hr.astro";
+import ThesisLink from "@/components/ThesisLink.astro";
 import getSortedPosts from "@/utils/getSortedPosts";
 import IconRss from "@/assets/icons/IconRss.svg";
 import IconArrowRight from "@/assets/icons/IconArrowRight.svg";
@@ -14,19 +15,16 @@ import { SITE } from "@/config";
 import { SOCIALS } from "@/constants";
 
 const posts = await getCollection("blog");
-const universityPosts = await getCollection("university");
 
 const sortedPosts = getSortedPosts(posts);
-const sortedUniversityPosts = getSortedPosts(universityPosts);
 const recentBlogPosts = sortedPosts;
-const recentUniversityPosts = sortedUniversityPosts.slice(0, 3);
 ---
 
 <Layout>
   <Header />
   <main id="main-content" data-layout="index">
-  <section id="hero" class="pt-8 pb-6 space-y-4">
-      <div class="sm:float-right sm:ml-4 mb-4">
+    <section id="hero" class="space-y-4 pt-8 pb-6">
+      <div class="mb-4 sm:float-right sm:ml-4">
         <img
           src="/pania-invernale.jpg"
           alt="Luca Lombardo"
@@ -34,7 +32,7 @@ const recentUniversityPosts = sortedUniversityPosts.slice(0, 3);
         />
       </div>
       <h1 class="my-4 inline-block text-4xl font-bold sm:my-8 sm:text-5xl">
-      About Me 🖖
+        About Me 🖖
       </h1>
       <a
         target="_blank"
@@ -52,36 +50,51 @@ const recentUniversityPosts = sortedUniversityPosts.slice(0, 3);
       </a>
 
       <p class="mb-4">
-        <span class="text-accent">❯</span> <span id="typewriter"></span><span id="cursor" class="animate-pulse">|</span>
+        <span class="text-accent">❯</span>
+        <span id="typewriter"></span><span id="cursor" class="animate-pulse"
+          >|</span
+        >
       </p>
 
       <p>
-        I have a Bachelor's Degree in Mathematics and I'm currently pursuing a
-        Master's Degree in Computer Science at the University of Pisa, Italy.
-        My main interests are in the fields of:
+        I hold a Bachelor's Degree in Mathematics and a Master's Degree in
+        Computer Science from the University of Pisa, Italy. My main interests
+        are in the fields of:
       </p>
 
-  <ul class="pl-8 list-none">
+      <ul class="list-none pl-8">
         <li class="mb-1">📕 Succinct data structures</li>
         <li class="mb-1">📘 Algorithms and data structures</li>
         <li class="mb-1">📗 High-performance computing</li>
         <li class="mb-1">📙 Rust and low-level code optimization</li>
       </ul>
 
-  <p>
-        For my Bachelor's thesis in mathematics I presented a new succinct data
-        structure for extending the classical rank query (the one for
-        bitvectors and strings) to Directed Acyclic Graphs. You can have a
-        look at it <a href="/thesis/bachelor_thesis.pdf" class="text-accent underline">here</a>.
-      </p>
+      <div class="space-y-2">
+        <p>You can read my theses here:</p>
+        <div class="space-y-3">
+          <ThesisLink
+            href="/thesis/bachelor_thesis.pdf"
+            degree="Bachelor's thesis"
+            title="Efficient Succinct Data Structures on Directed Acyclic Graphs"
+          />
+          <ThesisLink
+            href="/thesis/master_thesis.pdf"
+            degree="Master's thesis"
+            title="Compressed Representations of Set Collections"
+          />
+        </div>
+      </div>
 
-  <p>
-        I am also a member of <a href="https://phc.dm.unipi.it/" target="_blank" rel="noopener noreferrer" class="text-accent underline">PHC</a>,
-        a group of enthusiastic students about technology, software, hardware,
-        and how they work together. We manage a few servers, websites and
-        services for the mathematics department students. Sometimes we also
-        organize seminars about various topics related to math and computer
-        science (often together!).
+      <p>
+        I am also a member of <a
+          href="https://phc.dm.unipi.it/"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="text-accent underline">PHC</a
+        >, a group of enthusiastic students interested in technology, software,
+        hardware, and how they work together. We manage servers, websites, and
+        services for the mathematics department students, and organize seminars
+        about topics related to mathematics and computer science.
       </p>
       {
         // only display if at least one social link is enabled
@@ -105,23 +118,6 @@ const recentUniversityPosts = sortedUniversityPosts.slice(0, 3);
               (data, index: number) =>
                 index < SITE.postPerIndex && <Card variant="h3" {...data} />
             )}
-          </ul>
-        </section>
-      )
-    }
-
-    {
-      recentUniversityPosts.length > 0 && <Hr />
-    }
-
-    {
-      recentUniversityPosts.length > 0 && (
-        <section id="university" class="pt-12 pb-6">
-          <h2 class="text-2xl font-semibold tracking-wide">University</h2>
-          <ul>
-            {recentUniversityPosts.map(data => (
-              <Card variant="h3" {...data} />
-            ))}
           </ul>
         </section>
       )
@@ -163,10 +159,14 @@ const recentUniversityPosts = sortedUniversityPosts.slice(0, 3);
     let stopped = false;
 
     // Cancel all pending timers when navigating away
-    document.addEventListener("astro:before-swap", () => {
-      stopped = true;
-      if (timerId !== null) clearTimeout(timerId);
-    }, { once: true });
+    document.addEventListener(
+      "astro:before-swap",
+      () => {
+        stopped = true;
+        if (timerId !== null) clearTimeout(timerId);
+      },
+      { once: true }
+    );
 
     function type() {
       if (stopped) return;

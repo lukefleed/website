@@ -15,7 +15,7 @@ This is the third part of a series exploring how C, C++, and Rust manage memory 
 
 Part III turns to _representation_: how abstract types become concrete bit patterns, and how polymorphism, the ability to write code that operates on many types, is implemented.
 
-You can discuss this article on [Lobsters](https://lobste.rs/s/gykpyi/who_owns_memory_part_3_how_big_is_your_type),  Reddit ([r/rust](https://www.reddit.com/r/rust/comments/1q4qe9x/who_owns_the_memory_part_3_how_big_is_your_type/) and [r/programming](https://www.reddit.com/r/programming/comments/1q4qdxa/who_owns_the_memory_part_3_how_big_is_your_type/)) and [Hacker News](https://news.ycombinator.com/item?id=46500833)
+You can discuss this article on [Lobsters](https://lobste.rs/s/gykpyi/who_owns_memory_part_3_how_big_is_your_type), Reddit ([r/rust](https://www.reddit.com/r/rust/comments/1q4qe9x/who_owns_the_memory_part_3_how_big_is_your_type/) and [r/programming](https://www.reddit.com/r/programming/comments/1q4qdxa/who_owns_the_memory_part_3_how_big_is_your_type/)) and [Hacker News](https://news.ycombinator.com/item?id=46500833)
 
 ## Table of Contents
 
@@ -218,7 +218,7 @@ enum Packet {
 
 Combining `repr(C)` and a primitive representation, like `#[repr(C, u8)]`, specifies both C layout and a specific discriminant type.
 
-Adding an explicit `repr` to an enum with fields has a consequence: it *suppresses niche optimization*. This becomes clear after we discuss zero-sized types.
+Adding an explicit `repr` to an enum with fields has a consequence: it _suppresses niche optimization_. This becomes clear after we discuss zero-sized types.
 
 ### repr(packed): Eliminating Padding
 
@@ -239,7 +239,7 @@ Compare with the default layout, which would require 12 bytes (1 + 3 padding + 4
 
 The penalty is that fields may be misaligned. On x86-64, misaligned loads incur a performance penalty. On stricter architectures like ARM without unaligned access support or older SPARC, they cause hardware exceptions. Even on tolerant architectures, misaligned atomics are often incorrect.
 
-Rust addresses part of this problem by making it *illegal to create a reference to a misaligned field*:
+Rust addresses part of this problem by making it _illegal to create a reference to a misaligned field_:
 
 ```rust
 #[repr(packed)]
@@ -274,7 +274,7 @@ For FFI work, combining `repr(C, packed)` gives C-compatible layout with minimal
 
 While `repr(packed)` reduces alignment, `repr(align(n))` increases it. The attribute forces the type to have alignment of at least `n` bytes, where `n` must be a power of two.
 
-Why would we want *more* alignment than necessary? The answer lies in cache architecture. On x86-64, the L1 cache operates on 64-byte cache lines. When one core writes to an address, the entire cache line containing that address is invalidated in all other cores' caches. This is the MESI protocol (or variants like MESIF, MOESI) maintaining coherence.
+Why would we want _more_ alignment than necessary? The answer lies in cache architecture. On x86-64, the L1 cache operates on 64-byte cache lines. When one core writes to an address, the entire cache line containing that address is invalidated in all other cores' caches. This is the MESI protocol (or variants like MESIF, MOESI) maintaining coherence.
 
 Consider two atomic counters that different threads increment concurrently:
 
@@ -287,7 +287,7 @@ struct Counters {
 }
 ```
 
-Both counters fit in a single 64-byte cache line. When thread 1 increments `a`, it invalidates thread 2's cache line. When thread 2 increments `b`, it invalidates thread 1's cache line. Neither thread is accessing the other's data, yet they are constantly invalidating each other's caches. This is *false sharing*, and it can degrade performance by an order of magnitude on contended workloads.
+Both counters fit in a single 64-byte cache line. When thread 1 increments `a`, it invalidates thread 2's cache line. When thread 2 increments `b`, it invalidates thread 1's cache line. Neither thread is accessing the other's data, yet they are constantly invalidating each other's caches. This is _false sharing_, and it can degrade performance by an order of magnitude on contended workloads.
 
 The fix is to ensure each counter occupies its own cache line:
 
@@ -436,7 +436,7 @@ Raw pointers to empty types are valid to construct but dereferencing them is und
 
 ### Niche Optimization
 
-An enum must somehow record which variant it currently holds. The naive approach stores a *discriminant*, a small integer that identifies the variant, alongside the variant's data. For an enum with four variants, we need at least 2 bits to distinguish them; in practice, the discriminant occupies 1, 2, or 4 bytes depending on the number of variants and alignment constraints.
+An enum must somehow record which variant it currently holds. The naive approach stores a _discriminant_, a small integer that identifies the variant, alongside the variant's data. For an enum with four variants, we need at least 2 bits to distinguish them; in practice, the discriminant occupies 1, 2, or 4 bytes depending on the number of variants and alignment constraints.
 
 Consider `Option<T>`, which has two variants: `Some(T)` and `None`. The naive layout stores a discriminant plus the `T`:
 
@@ -448,7 +448,7 @@ Consider `Option<T>`, which has two variants: `Some(T)` and `None`. The naive la
 // total: 16 bytes
 ```
 
-This is wasteful when `T` is something like `&u64`. A reference is 8 bytes, so `Option<&u64>` would be 16 bytes: 8 for the pointer, plus padding and discriminant overhead. But here is the insight that enables optimization: *a reference can never be null*. Rust guarantees that `&T` always points to a valid `T`. The bit pattern consisting of all zeros, the null pointer, can never represent a valid reference.
+This is wasteful when `T` is something like `&u64`. A reference is 8 bytes, so `Option<&u64>` would be 16 bytes: 8 for the pointer, plus padding and discriminant overhead. But here is the insight that enables optimization: _a reference can never be null_. Rust guarantees that `&T` always points to a valid `T`. The bit pattern consisting of all zeros, the null pointer, can never represent a valid reference.
 
 The compiler exploits this. For `Option<&T>`, there is no separate discriminant. The `Some` variant stores the pointer as-is. The `None` variant is represented by the null pointer. Pattern matching becomes a null check:
 
@@ -460,15 +460,15 @@ The compiler exploits this. For `Option<&T>`, there is no separate discriminant.
 // Some(&x) is represented as the address of x
 ```
 
-This is called *niche optimization*. A *niche* is a bit pattern that a type guarantees it will never hold. The compiler uses niches to encode enum discriminants without allocating additional space.
+This is called _niche optimization_. A _niche_ is a bit pattern that a type guarantees it will never hold. The compiler uses niches to encode enum discriminants without allocating additional space.
 
 Which types have niches? Any type that forbids certain bit patterns:
 
 References (`&T`, `&mut T`) forbid null. `NonNull<T>` exists specifically to be a non-null pointer. The `NonZeroU32` type (and its siblings `NonZeroU8`, `NonZeroI64`, etc.) forbid zero. `Box<T>` contains a non-null pointer internally. Function pointers forbid null. `bool` only permits 0 and 1, so 254 other byte values are niches.
 
-The optimization composes, but only when niches remain available. `Option<Box<T>>` uses null for `None`. What about `Option<Option<Box<T>>>`? The outer `Option` needs a niche to represent its `None`, but the inner `Option` already consumed the only niche (null) for *its* `None`. Can we distinguish outer-`None` from `Some(None)`?
+The optimization composes, but only when niches remain available. `Option<Box<T>>` uses null for `None`. What about `Option<Option<Box<T>>>`? The outer `Option` needs a niche to represent its `None`, but the inner `Option` already consumed the only niche (null) for _its_ `None`. Can we distinguish outer-`None` from `Some(None)`?
 
-In principle, the compiler could exploit other invalid bit patterns. On x86-64 with 48-bit virtual addresses, misaligned addresses like `0x0000000000000001` are invalid for `Box<i32>` (which requires 4-byte alignment). The Rustonomicon explicitly leaves enum layout unspecified to permit such optimizations in the future. But as of current rustc, *pointer types expose only the null niche*. Once it is consumed, nesting adds a discriminant:
+In principle, the compiler could exploit other invalid bit patterns. On x86-64 with 48-bit virtual addresses, misaligned addresses like `0x0000000000000001` are invalid for `Box<i32>` (which requires 4-byte alignment). The Rustonomicon explicitly leaves enum layout unspecified to permit such optimizations in the future. But as of current rustc, _pointer types expose only the null niche_. Once it is consumed, nesting adds a discriminant:
 
 ```rust
 use std::mem::size_of;
@@ -480,7 +480,7 @@ assert_eq!(size_of::<Option<Option<Box<i32>>>>(), 16); // no second niche availa
 
 The first level of `Option` is free. The second level costs 8 bytes (1-byte discriminant + 7 bytes padding to maintain pointer alignment).
 
-Types with *multiple* niches do compose further. A `bool` occupies one byte but has only two valid bit patterns (0 and 1), leaving 254 niches. The compiler can represent several `None` variants without additional space:
+Types with _multiple_ niches do compose further. A `bool` occupies one byte but has only two valid bit patterns (0 and 1), leaving 254 niches. The compiler can represent several `None` variants without additional space:
 
 ```rust
 use std::mem::size_of;
@@ -571,13 +571,13 @@ int main(void) {
 }
 ```
 
-The parameter `int arr[]` is identical to `int *arr`. The array *decays* to a pointer, and the length vanishes from the type. Nothing in the language connects the pointer to its length. If we pass the wrong length, we get buffer overflows. If we forget to pass it entirely, the function cannot know where the array ends.
+The parameter `int arr[]` is identical to `int *arr`. The array _decays_ to a pointer, and the length vanishes from the type. Nothing in the language connects the pointer to its length. If we pass the wrong length, we get buffer overflows. If we forget to pass it entirely, the function cannot know where the array ends.
 
 This decay happens implicitly. The expression `data` in the call site has type `int[10]`, but by the time it reaches `process`, it is just `int*`. The compiler erases information that the programmer must then track manually.
 
 ### Dynamically Sized Types in Rust
 
-Rust solves this with *dynamically sized types* (DSTs), types whose size is not known at compile time. The language has three built-in DST categories.
+Rust solves this with _dynamically sized types_ (DSTs), types whose size is not known at compile time. The language has three built-in DST categories.
 
 The slice type `[T]` represents a contiguous sequence of `T` values of unknown length. Unlike `[T; N]`, which has compile-time-known size `N * size_of::<T>()`, the type `[T]` could represent any number of elements. A `[u8]` might be 10 bytes or 10,000 bytes.
 
@@ -617,11 +617,11 @@ assert_eq!(unsafe { *ptr }, 2);  // first element of slice
 
 The wide pointer solves the C problem. When we pass a `&[T]`, the length travels with the pointer. There is no way to separate them, pass the wrong length or forget it.
 
-The coercion from `&[i32; 5]` to `&[i32]` is an *unsizing coercion*. The compiler takes the thin pointer to the array, combines it with the statically-known length, and produces a wide pointer. This happens implicitly at coercion sites, including `let` bindings with explicit types, function arguments, and return values.
+The coercion from `&[i32; 5]` to `&[i32]` is an _unsizing coercion_. The compiler takes the thin pointer to the array, combines it with the statically-known length, and produces a wide pointer. This happens implicitly at coercion sites, including `let` bindings with explicit types, function arguments, and return values.
 
 ### Trait Object Representation
 
-For trait objects, the wide pointer contains different metadata. A `&dyn Trait` stores a pointer to the concrete value paired with a pointer to a *vtable* (virtual method table).
+For trait objects, the wide pointer contains different metadata. A `&dyn Trait` stores a pointer to the concrete value paired with a pointer to a _vtable_ (virtual method table).
 
 ```rust
 use std::mem::size_of;
@@ -706,11 +706,11 @@ The vtable itself must be in cache for the lookup to be fast. A vtable is small 
 
 Inlining is the most significant loss. When the compiler inlines a function, it can see both caller and callee code simultaneously. This enables constant propagation, dead code elimination, loop fusion, and SIMD vectorization across the boundary. In the general case, none of this is possible through a vtable; the compiler cannot see through the indirection, so each call becomes an optimization barrier.
 
-In C++, modern compilers can sometimes *devirtualize* virtual calls. If the concrete type is visible at the call site (immediately after construction, or when the class is marked `final`), Clang/GCC may replace the indirect call with a direct one. With LTO and `-fwhole-program-vtables`, C++ compilers can devirtualize when only one implementation exists program-wide.
+In C++, modern compilers can sometimes _devirtualize_ virtual calls. If the concrete type is visible at the call site (immediately after construction, or when the class is marked `final`), Clang/GCC may replace the indirect call with a direct one. With LTO and `-fwhole-program-vtables`, C++ compilers can devirtualize when only one implementation exists program-wide.
 
 Rust's situation is less favorable. As of 2025, rustc does not provide the metadata LLVM needs for whole-program devirtualization. Even when only a single type implements a trait in the entire binary, trait object calls remain indirect. LLVM can devirtualize in trivial cases where the concrete type is immediately visible (creating a trait object and calling a method in the same basic block), but this is rare in practice. The tracking issue [rust-lang/rust#68262](https://github.com/rust-lang/rust/issues/68262) has seen little progress. For now, if we need devirtualization in Rust, we can use generics or enums, the compiler will not rescue trait objects for us.
 
-Consider a loop summing areas. Here we must be careful: the static and dynamic versions solve *different* problems.
+Consider a loop summing areas. Here we must be careful: the static and dynamic versions solve _different_ problems.
 
 ```rust
 // Static dispatch: all elements must be the same concrete type
@@ -760,7 +760,7 @@ The rule of thumb is to use generics with trait bounds for performance-critical 
 
 Rust and C++ made opposite design decisions about where to store the vtable pointer.
 
-In C++, polymorphic objects embed a *vptr* directly in the object:
+In C++, polymorphic objects embed a _vptr_ directly in the object:
 
 ```cpp
 class Drawable {
@@ -820,7 +820,7 @@ Each reference carries its own vtable pointer, pointing to different vtables. Th
 
 ### Dyn Compatibility
 
-Not every trait can be used as a trait object. The rules for *dyn compatibility* (formerly called object safety) restrict which traits work with dynamic dispatch.
+Not every trait can be used as a trait object. The rules for _dyn compatibility_ (formerly called object safety) restrict which traits work with dynamic dispatch.
 
 A dyn-compatible trait must not require `Self: Sized`. Requiring `Sized` would contradict the purpose of trait objects, which exist to handle values of unknown size. The trait must have no associated constants, since constants require knowing the concrete type at compile time. It must have no associated types with generic parameters, which would require instantiation at compile time.
 
@@ -1037,7 +1037,7 @@ The Rust Reference explicitly lists invalid wide pointer metadata as undefined b
 
 We saw how Rust represents pointers to dynamically sized types. A `&dyn Draw` carries both a data pointer and a vtable pointer, 16 bytes that enable runtime method dispatch. But this raises a question we have not yet answered: why does Rust need two polymorphism mechanisms at all? Templates and generics already let us write code that works across types. Why introduce vtables?
 
-When we write a function that operates on "any type implementing trait X," the compiler must decide how to generate code for it. Two strategies exist. The compiler can stamp out a separate copy of the function for each concrete type that actually gets used, a process called *monomorphization*. Alternatively, the compiler can generate a single copy of the function that dispatches method calls through a table of function pointers at runtime. Both C++ and Rust support both strategies. C, lacking native generics, provides only workarounds that approximate each approach with varying degrees of type safety.
+When we write a function that operates on "any type implementing trait X," the compiler must decide how to generate code for it. Two strategies exist. The compiler can stamp out a separate copy of the function for each concrete type that actually gets used, a process called _monomorphization_. Alternatively, the compiler can generate a single copy of the function that dispatches method calls through a table of function pointers at runtime. Both C++ and Rust support both strategies. C, lacking native generics, provides only workarounds that approximate each approach with varying degrees of type safety.
 
 Monomorphization eliminates runtime indirection entirely; every call is direct, every function body can be inlined, the optimizer sees through abstraction boundaries. But the binary contains a separate copy of the generic code for every type instantiation, which bloats both compile time and binary size. Dynamic dispatch through vtables produces a single copy of the code regardless of how many implementing types exist, but every method call requires loading a function pointer from memory and jumping through it, which the CPU cannot predict well and which prevents inlining.
 
@@ -1112,7 +1112,7 @@ double y = max(1.5, 2.5);    // instantiates max<double>
 
 When the compiler encounters `max(3, 5)`, it deduces `T = int` and generates a specialized function `max<int>`. A separate `max<double>` gets generated for the second call. Each instantiation is compiled independently, producing code identical to what we would write by hand. There is no runtime overhead.
 
-Templates use what is sometimes called *duck typing*: instantiation succeeds when the operations used in the template body are valid for the concrete type; otherwise, the compiler emits an error. The problem is that errors emerge from deep within the template instantiation, often producing notoriously verbose diagnostics that obscure the root cause. The template's requirements are implicit; we discover at instantiation time whether a type satisfies them.
+Templates use what is sometimes called _duck typing_: instantiation succeeds when the operations used in the template body are valid for the concrete type; otherwise, the compiler emits an error. The problem is that errors emerge from deep within the template instantiation, often producing notoriously verbose diagnostics that obscure the root cause. The template's requirements are implicit; we discover at instantiation time whether a type satisfies them.
 
 This implicit checking enables SFINAE (Substitution Failure Is Not An Error), a mechanism where invalid template substitutions silently remove candidates from the overload set rather than causing hard errors. Before C++20, constraining templates required arcane metaprogramming with `std::enable_if` and type traits:
 
@@ -1166,7 +1166,7 @@ Other translation units can use `process<int>` without triggering instantiation;
 
 ### C++ Virtual Functions
 
-C++ supports runtime polymorphism through virtual functions. A class with at least one virtual function is *polymorphic*:
+C++ supports runtime polymorphism through virtual functions. A class with at least one virtual function is _polymorphic_:
 
 ```cpp
 class Shape {
@@ -1205,9 +1205,9 @@ print_area(r);  // calls Rectangle::area
 
 The compiler cannot know at compile time which implementation to call. The decision is deferred to runtime.
 
-To implement this, the compiler inserts a hidden pointer (the *vptr*) into every object of a polymorphic class. The vptr points to a static table (the *vtable*) shared by all objects of the same dynamic type. The Itanium C++ ABI, used by GCC, Clang, and most non-Windows compilers, specifies the vtable layout precisely.
+To implement this, the compiler inserts a hidden pointer (the _vptr_) into every object of a polymorphic class. The vptr points to a static table (the _vtable_) shared by all objects of the same dynamic type. The Itanium C++ ABI, used by GCC, Clang, and most non-Windows compilers, specifies the vtable layout precisely.
 
-The vtable contains several components, laid out at specific offsets from an *address point*. Components before the address point (at negative offsets) include virtual call offsets for adjusting `this` pointers in multiple inheritance scenarios, virtual base offsets for locating virtual base subobjects, and the *offset-to-top*, a `ptrdiff_t` giving the displacement from this vtable pointer location to the top of the complete object (used by `dynamic_cast<void*>`). At the address point sits the RTTI pointer, pointing to type information for runtime type identification. After the address point come the virtual function pointers themselves, in declaration order.
+The vtable contains several components, laid out at specific offsets from an _address point_. Components before the address point (at negative offsets) include virtual call offsets for adjusting `this` pointers in multiple inheritance scenarios, virtual base offsets for locating virtual base subobjects, and the _offset-to-top_, a `ptrdiff_t` giving the displacement from this vtable pointer location to the top of the complete object (used by `dynamic_cast<void*>`). At the address point sits the RTTI pointer, pointing to type information for runtime type identification. After the address point come the virtual function pointers themselves, in declaration order.
 
 For a simple class hierarchy without multiple inheritance, the layout simplifies. A `Circle` object in memory looks like:
 
@@ -1265,13 +1265,13 @@ fn broken<T: PartialOrd>(a: T, b: T) -> T {
 
 Rust checks the generic function against its declared bounds before instantiation. This differs from C++ templates, where the body is tentatively compiled against each concrete type, with errors emerging during instantiation.
 
-The monomorphization process itself works similarly. When the Rust compiler encounters generic function calls, it records the concrete types. During code generation, the *monomorphization collector* traverses the call graph to identify all required instantiations. Each generic function paired with each set of concrete type arguments becomes a distinct *mono item* that gets compiled to machine code.
+The monomorphization process itself works similarly. When the Rust compiler encounters generic function calls, it records the concrete types. During code generation, the _monomorphization collector_ traverses the call graph to identify all required instantiations. Each generic function paired with each set of concrete type arguments becomes a distinct _mono item_ that gets compiled to machine code.
 
-The collector partitions mono items into *Codegen Units* (CGUs). For incremental compilation, the partitioner creates separate CGUs for stable non-generic code and for monomorphized instances. When only generic instantiations change, the stable CGU can be reused.
+The collector partitions mono items into _Codegen Units_ (CGUs). For incremental compilation, the partitioner creates separate CGUs for stable non-generic code and for monomorphized instances. When only generic instantiations change, the stable CGU can be reused.
 
 The same binary size concerns apply. A generic function used with many types produces many copies. The `cargo llvm-lines` tool shows which functions contribute most to generated LLVM IR. In large codebases, common utility functions like `Option::map` and `Result::map_err` can get instantiated hundreds of times, dominating code size.
 
-The standard mitigation is the *inner function pattern*: move the bulk of the logic into a non-generic inner function, leaving a thin generic wrapper:
+The standard mitigation is the _inner function pattern_: move the bulk of the logic into a non-generic inner function, leaving a thin generic wrapper:
 
 ```rust
 pub fn read<P: AsRef<Path>>(path: P) -> io::Result<Vec<u8>> {
@@ -1375,11 +1375,11 @@ The static version also enables further optimization. If the compiler can prove 
 
 ## Closures and Captures
 
-We have seen two strategies for polymorphism: monomorphization produces specialized code for each concrete type, while vtables enable a single function to operate on values of unknown type through indirect dispatch. Both mechanisms deal with *code* that varies. But what happens when we need a function that carries *state*?
+We have seen two strategies for polymorphism: monomorphization produces specialized code for each concrete type, while vtables enable a single function to operate on values of unknown type through indirect dispatch. Both mechanisms deal with _code_ that varies. But what happens when we need a function that carries _state_?
 
-Consider a sorting function that accepts a comparison predicate. The predicate must know *how* to compare, which is pure code. But suppose we want to sort by distance from some reference point. Now the predicate needs access to the reference point's coordinates, data that exists outside the function itself. The predicate is no longer pure code; it is code plus environment.
+Consider a sorting function that accepts a comparison predicate. The predicate must know _how_ to compare, which is pure code. But suppose we want to sort by distance from some reference point. Now the predicate needs access to the reference point's coordinates, data that exists outside the function itself. The predicate is no longer pure code; it is code plus environment.
 
-This is the closure problem. A closure *closes over* variables from its enclosing scope, capturing them for later use. The three languages approach this problem with characteristic differences. C lacks closures entirely and requires manual workarounds. C++ introduced lambda expressions that desugar to anonymous structs with an overloaded call operator. Rust closures work similarly but integrate with the ownership system, with the `Fn`, `FnMut`, and `FnOnce` traits encoding how the closure interacts with its captured state.
+This is the closure problem. A closure _closes over_ variables from its enclosing scope, capturing them for later use. The three languages approach this problem with characteristic differences. C lacks closures entirely and requires manual workarounds. C++ introduced lambda expressions that desugar to anonymous structs with an overloaded call operator. Rust closures work similarly but integrate with the ownership system, with the `Fn`, `FnMut`, and `FnOnce` traits encoding how the closure interacts with its captured state.
 
 ### C: Function Pointers and the Context Pattern
 
@@ -1581,7 +1581,7 @@ The three traits `Fn`, `FnMut`, and `FnOnce` form a hierarchy that describes how
 
 `Fn` requires only shared access. The signature is `fn call(&self, args: Args) -> Output`. A closure implements `Fn` if calling it neither consumes nor mutates any captured values.
 
-The hierarchy is `Fn: FnMut: FnOnce`. A closure implementing `Fn` automatically implements `FnMut` and `FnOnce`. The traits encode *what the closure does when called*, not *how it captured* its environment.
+The hierarchy is `Fn: FnMut: FnOnce`. A closure implementing `Fn` automatically implements `FnMut` and `FnOnce`. The traits encode _what the closure does when called_, not _how it captured_ its environment.
 
 This can be tricky if we think in terms of C++ lambdas. For example, a `move` closure can still implement `Fn`:
 

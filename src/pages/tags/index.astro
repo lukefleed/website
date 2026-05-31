@@ -16,7 +16,10 @@ let tags = getUniqueTags(posts, universityPosts);
 
 <Layout title={`Tags | ${SITE.title}`}>
   <Header />
-  <Main pageTitle="Tags" pageDesc="All the tags used in posts and university projects.">
+  <Main
+    pageTitle="Tags"
+    pageDesc="All the tags used in posts and university projects."
+  >
     <ul>
       {tags.map(({ tag, tagName }) => <Tag {tag} {tagName} size="lg" />)}
     </ul>

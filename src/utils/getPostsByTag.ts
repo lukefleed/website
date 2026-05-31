@@ -18,9 +18,6 @@ const sortByDate = (
 const getPostsByTag = (
   posts: (CollectionEntry<"blog"> | CollectionEntry<"university">)[],
   tag: string
-) =>
-  sortByDate(
-    posts.filter(post => slugifyAll(post.data.tags).includes(tag))
-  );
+) => sortByDate(posts.filter(post => slugifyAll(post.data.tags).includes(tag)));
 
 export default getPostsByTag;

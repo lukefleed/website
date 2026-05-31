@@ -13,12 +13,12 @@ description: Engineering a thread-safe, bit-packed integer vector in Rust, using
 
 This is the second post of a series on how to build a memory-efficient vector in Rust. All this work is open source and is currently being used for research projects in succinct data structures.
 
-* All the code can be found on github: [compressed-intvec](https://github.com/lukefleed/compressed-intvec)
-* This is also published as a crate on crates.io: [compressed-intvec](https://crates.io/crates/compressed-intvec)
+- All the code can be found on github: [compressed-intvec](https://github.com/lukefleed/compressed-intvec)
+- This is also published as a crate on crates.io: [compressed-intvec](https://crates.io/crates/compressed-intvec)
 
 ## Table of Contents
 
-In the [first post]([link-to-part-1](https://lukefleed.xyz/posts/compressed-fixedvec/)), we built `FixedVec`, a bit-packed integer vector that gives us O(1) random access while using a fraction of the memory of a standard `Vec<T>`. We worked through the core problem of reading bit-packed data, and saw how a single unaligned memory read could let us efficiently handle values that span across 64-bit word boundaries. We ended up with a solid, fast data structure complete with a clean, ergonomic API.
+In the [first post](<[link-to-part-1](https://lukefleed.xyz/posts/compressed-fixedvec/)>), we built `FixedVec`, a bit-packed integer vector that gives us O(1) random access while using a fraction of the memory of a standard `Vec<T>`. We worked through the core problem of reading bit-packed data, and saw how a single unaligned memory read could let us efficiently handle values that span across 64-bit word boundaries. We ended up with a solid, fast data structure complete with a clean, ergonomic API.
 
 So, we have a great single-threaded vector. But what happens when we need to share it between threads? The natural next step is to build an `AtomicFixedVec` with an API that feels like Rust's standard atomics: `load`, `store`, `fetch_add`, and so on.
 
@@ -51,7 +51,7 @@ where
 }
 ```
 
- This lock pool is the mechanism we will use to enforce atomicity for operations that must modify two adjacent words simultaneously.
+This lock pool is the mechanism we will use to enforce atomicity for operations that must modify two adjacent words simultaneously.
 
 With this structure in place, we can now design a hybrid concurrency model. Every operation must first determine if the target element is fully contained within a single `AtomicU64` or if it spans two. Based on this, it will dispatch to one of two paths: a high-performance, lock-free path for in-word elements, or a lock-based path that uses our striped lock pool for spanning elements.
 
@@ -132,7 +132,7 @@ In the same way, we can implement other atomic operations like `atomic_rmw` (for
 
 Now let's move to the more complex case when an element spans two `AtomicU64` words. Here the lock-free CAS loop is no longer enough. An atomic update would require to modify two separate `AtomicU64` words, and no single hardware instruction can do this as one indivisible transaction. To ensure atomicity, we must use a lock.
 
-A single, global `Mutex` would serialize all concurrent writes, becoming an unacceptable performance bottleneck.  We can instead employ **lock striping**, a concurrency pattern that partitions the data structure to reduce the scope of contention. The core idea is to maintain an array of locks, and map different regions of our data to different locks. We can add to our `AtomicFixedVec` a `Vec<parking_lot::Mutex<()>>`. To perform an operation on a spanning element that touches `word_index` and `word_index + 1`, a thread first acquires a specific lock from this pool. The mapping is done by hashing the word index to a lock index. Since the number of locks is a power of two, we can use a fast bitwise AND for this mapping instead of a slower modulo operation: `let lock_index = word_index & (self.locks.len() - 1)`.
+A single, global `Mutex` would serialize all concurrent writes, becoming an unacceptable performance bottleneck. We can instead employ **lock striping**, a concurrency pattern that partitions the data structure to reduce the scope of contention. The core idea is to maintain an array of locks, and map different regions of our data to different locks. We can add to our `AtomicFixedVec` a `Vec<parking_lot::Mutex<()>>`. To perform an operation on a spanning element that touches `word_index` and `word_index + 1`, a thread first acquires a specific lock from this pool. The mapping is done by hashing the word index to a lock index. Since the number of locks is a power of two, we can use a fast bitwise AND for this mapping instead of a slower modulo operation: `let lock_index = word_index & (self.locks.len() - 1)`.
 
 In this way we are partitioning the vector into a set of independent regions. A locked write to words `(i, i+1)` will not block a simultaneous locked write to words `(j, j+1)` or a lock-free write to word `k`, provided they map to different locks in the stripe. We now need a heuristic to determine, at construction time, how many locks to create. Ideally we would like to balance contention reduction against memory overhead. This could be a valuable option:
 
@@ -147,7 +147,7 @@ let num_locks = (target_locks.max(num_cores) * 2)
 
 The logic aims to create enough locks to service the available hardware threads (`num_cores`) and to cover the data with a reasonable density (one lock per 64 words, `WORDS_PER_LOCK`). We take the maximum of these two, multiply by two as a simple overprovisioning factor, and round up to the next power of two to enable fast mapping via bitwise AND. The total number of locks is capped to prevent excessive memory consumption for the lock vector itself.
 
-> **In this the best way?** I don't know, probably not. For instance, a *seqlock* could theoretically offer higher performance for read-heavy workloads. A writer would increment a version counter, perform the non-atomic two-word write, and increment it again. Readers would check for a consistent version number to validate that their read was not interrupted. However, this pattern is fundamentally incompatible with Rust's safety guarantees. A reader in a seqlock might observe a "torn read" (a state where one word has been updated but the other has not). This constitutes a data race, which safe Rust's memory model is designed to prevent. A correct seqlock implementation requires a ton of `unsafe` code, volatile reads, and careful memory fencing. Given this constrains (and that I am not an expert in lock-free programming), we can stick to the simpler yet performant implementation bases on `Mutex`. At least, power of two `bit_width` values can avoid the spanning case entirely.
+> **In this the best way?** I don't know, probably not. For instance, a _seqlock_ could theoretically offer higher performance for read-heavy workloads. A writer would increment a version counter, perform the non-atomic two-word write, and increment it again. Readers would check for a consistent version number to validate that their read was not interrupted. However, this pattern is fundamentally incompatible with Rust's safety guarantees. A reader in a seqlock might observe a "torn read" (a state where one word has been updated but the other has not). This constitutes a data race, which safe Rust's memory model is designed to prevent. A correct seqlock implementation requires a ton of `unsafe` code, volatile reads, and careful memory fencing. Given this constrains (and that I am not an expert in lock-free programming), we can stick to the simpler yet performant implementation bases on `Mutex`. At least, power of two `bit_width` values can avoid the spanning case entirely.
 
 With the lock striping mechanism cleared, we can now complete the implementation for our `atomic_store` method. The first step is to acquire the correct lock.
 
@@ -156,7 +156,7 @@ let lock_index = word_index & (self.locks.len() - 1);
 let _guard = self.locks[lock_index].lock();
 ```
 
-Once the lock is acquired, we have exclusive access for this two-word transaction. However, it's critical that we continue to use atomic operations to modify the words themselves. This is because another thread might be concurrently executing a *lock-free* operation on an adjacent, non-spanning element that happens to reside in `word_index` or `word_index + 1`. Using non-atomic writes inside the lock would create a data race with those lock-free operations.
+Once the lock is acquired, we have exclusive access for this two-word transaction. However, it's critical that we continue to use atomic operations to modify the words themselves. This is because another thread might be concurrently executing a _lock-free_ operation on an adjacent, non-spanning element that happens to reside in `word_index` or `word_index + 1`. Using non-atomic writes inside the lock would create a data race with those lock-free operations.
 
 We therefore use `fetch_update`, another CAS-based atomic, to modify each of the two words. For the lower word, we clear the high bits starting from our `bit_offset` and OR in the low bits of our new value.
 
@@ -250,7 +250,7 @@ fn atomic_store(&self, index: usize, value: u64, order: Ordering) {
 }
 ```
 
-The branching logic `if bit_offset + self.bit_width <= 64` is a simple, constant-time check that determines which path to take. The condition is highly predictable for the CPU's branch predictor, as the `bit_offset` follows a simple arithmetic progression based on the index. This minimizes pipeline stalls. More importantly, this structure enables significant compiler optimization. When we use `AtomicFixedVec` with a `bit_width` that is a power of two, the branch condition can often be resolved at compile time. With Link-Time Optimization (LTO), the compiler can prove that the `else` branch for the locked path is unreachable. This allows for dead code elimination, producing a specialized function containing *only* the lock-free CAS loop.
+The branching logic `if bit_offset + self.bit_width <= 64` is a simple, constant-time check that determines which path to take. The condition is highly predictable for the CPU's branch predictor, as the `bit_offset` follows a simple arithmetic progression based on the index. This minimizes pipeline stalls. More importantly, this structure enables significant compiler optimization. When we use `AtomicFixedVec` with a `bit_width` that is a power of two, the branch condition can often be resolved at compile time. With Link-Time Optimization (LTO), the compiler can prove that the `else` branch for the locked path is unreachable. This allows for dead code elimination, producing a specialized function containing _only_ the lock-free CAS loop.
 
 # Benchmarking the `store` operation
 
@@ -263,6 +263,7 @@ vec[index].store(thread_id, Ordering::SeqCst);
 ```
 
 We compare our `AtomicFixedVec` against two other implementations:
+
 1.  A `Vec<AtomicU16>`: This serves as our "ideal" baseline.
 2.  [`sux::AtomicBitFieldVec`]: A similar implementation of another library. This comparison however is not perfectly equivalent for bit-widths that are not powers of two. As per their documentation, `sux` does not guarantee atomicity for values that span word boundaries, which can lead to "torn writes." Our `AtomicFixedVec` is designed to prevent this class of data race through its lock striping mechanism. The performance cost of this correctness guarantee is precisely what we aim to measure.
 
@@ -316,7 +317,7 @@ match atomic_word_ref.compare_exchange_weak(old_word, new_word, success, failure
 }
 ```
 
-If the `compare_exchange_weak` succeeds, it means no other thread modified the 64-bit word between our initial `load` and this instruction. Our update is successful. If it fails, another thread (possibly operating on an *adjacent* element in the same word) has modified the word. We update our local `old_word` with the new value from memory and retry the entire loop.
+If the `compare_exchange_weak` succeeds, it means no other thread modified the 64-bit word between our initial `load` and this instruction. Our update is successful. If it fails, another thread (possibly operating on an _adjacent_ element in the same word) has modified the word. We update our local `old_word` with the new value from memory and retry the entire loop.
 
 ## The Locked Path
 
@@ -374,9 +375,10 @@ fn atomic_compare_exchange(
     }
 }
 ```
+
 With `atomic_compare_exchange` providing the core atomicity primitive, we can now construct the high-level Read-Modify-Write (RMW) API. All RMW operations, such as `fetch_add` or `fetch_max`, share an identical algorithmic structure: a loop that repeatedly reads a value, computes a new value, and attempts to commit it with `compare_exchange`. Re-implementing this loop for every operation would be redundant.
 
-Instead, we can abstract this pattern into a single generic method, `atomic_rmw`, that is parameterized not just over values, but over the *operation itself*. This is where Rust generics and closures come into play. The signature of `atomic_rmw` can be defined as follows:
+Instead, we can abstract this pattern into a single generic method, `atomic_rmw`, that is parameterized not just over values, but over the _operation itself_. This is where Rust generics and closures come into play. The signature of `atomic_rmw` can be defined as follows:
 
 ```rust
 fn atomic_rmw<F>(&self, index: usize, val: T, order: Ordering, op: F) -> T
@@ -386,7 +388,8 @@ where
     // ... implementation ...
 }
 ```
-*Note: The actual implementation uses `impl Fn(...)` for a more ergonomic syntax, but the principle is the same.*
+
+_Note: The actual implementation uses `impl Fn(...)` for a more ergonomic syntax, but the principle is the same._
 
 The `op` parameter is a generic type `F` constrained by the `Fn(T, T) -> T` trait. This means `op` can be any closure (or function pointer) that takes two values of our logical type `T` and returns a new `T`. This allows us to inject any binary operation—addition, bitwise AND, max, etc. directly into the RMW logic.
 

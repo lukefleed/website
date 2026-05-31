@@ -1,7 +1,6 @@
 @plugin '@tailwindcss/typography';
 
 @layer base {
-
   /* ===== Override default Tailwind Typography styles ===== */
   .app-prose {
     @apply prose;
@@ -53,7 +52,6 @@
     }
 
     table {
-
       th,
       td {
         @apply border border-border p-2;

@@ -1,0 +1,21 @@
+---
+export interface Props {
+  degree: string;
+  href: string;
+  title: string;
+}
+
+const { degree, href, title } = Astro.props;
+---
+
+<a
+  href={href}
+  class="group block border-l-2 border-border py-1.5 pl-3 transition hover:border-accent"
+>
+  <span class="block text-sm text-accent">{degree}</span>
+  <span
+    class="block leading-snug group-hover:underline group-hover:decoration-dashed"
+  >
+    {title}
+  </span>
+</a>

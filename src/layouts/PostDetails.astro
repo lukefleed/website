@@ -189,20 +189,24 @@ const nextPost =
     if (!myBar) return;
 
     let ticking = false;
-    document.addEventListener("scroll", () => {
-      if (!ticking) {
-        requestAnimationFrame(() => {
-          const scrollTop =
-            document.body.scrollTop || document.documentElement.scrollTop;
-          const scrollHeight =
-            document.documentElement.scrollHeight -
-            document.documentElement.clientHeight;
-          myBar.style.width = (scrollTop / scrollHeight) * 100 + "%";
-          ticking = false;
-        });
-        ticking = true;
-      }
-    }, { passive: true });
+    document.addEventListener(
+      "scroll",
+      () => {
+        if (!ticking) {
+          requestAnimationFrame(() => {
+            const scrollTop =
+              document.body.scrollTop || document.documentElement.scrollTop;
+            const scrollHeight =
+              document.documentElement.scrollHeight -
+              document.documentElement.clientHeight;
+            myBar.style.width = (scrollTop / scrollHeight) * 100 + "%";
+            ticking = false;
+          });
+          ticking = true;
+        }
+      },
+      { passive: true }
+    );
   }
 
   /** Attaches links to headings in the document,
@@ -271,9 +275,12 @@ const nextPost =
   });
   // 4. DEFERRED: copy buttons (idle time, heaviest operation)
   if ("requestIdleCallback" in window) {
-    requestIdleCallback(() => {
-      attachCopyButtons();
-    }, { timeout: 2000 });
+    requestIdleCallback(
+      () => {
+        attachCopyButtons();
+      },
+      { timeout: 2000 }
+    );
   } else {
     setTimeout(attachCopyButtons, 100);
   }

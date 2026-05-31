@@ -11,7 +11,6 @@ tags:
 description: How a bit of algorithm engineering and low-level details can alter what seems like a straightforward trade-off on a blackboard.
 ---
 
-
 The standard Lanczos method for computing matrix functions has a brutal memory requirement: storing an $n \times k$ basis matrix that grows with every iteration. For a $500.000$-variable problem needing $1000$ iterations, that's roughly 4 GB just for the basis.
 
 In this post, we will explore one of the most straightforward solutions to this problem: a two-pass variant of the Lanczos algorithm that only requires $O(n)$ memory at the cost of doubling the number of matrix-vector products. The surprising part is that when implemented carefully, the two-pass version isn't just memory-efficient—it can be faster for certain problems. We will dig into why.
@@ -21,11 +20,9 @@ In this post, we will explore one of the most straightforward solutions to this 
 
 You can discuss this post on [Hacker News](https://news.ycombinator.com/item?id=45889891), [Lobsters](https://lobste.rs/s/sag4i3/cache_friendly_low_memory_lanczos) and [Reddit](https://www.reddit.com/r/rust/comments/1ouf5hp/cachefriendly_lowmemory_lanczos_algorithm_in_rust/).
 
-
 ---
 
 ## Table of Contents
-
 
 # Computing Matrix Functions
 
@@ -107,11 +104,10 @@ Since $k \ll n$, we can afford direct methods like Schur-Parlett ($O(k^3)$).
 
 > For $f(z) = z^{-1}$ (linear systems), this reduces to solving $\mathbf{H}_k \mathbf{y}_k = \mathbf{e}_1 \|\mathbf{b}\|_2$ with LU decomposition.
 
-
 # The Lanczos Algorithm
 
 When $\mathbf{A}$ is Hermitian (or symmetric in the real case), the general Arnoldi
-process simplifies dramatically. We can prove that $\mathbf{H}_k = \mathbf{V}_k^H \mathbf{A} \mathbf{V}_k$ must also be Hermitian. A matrix that is both upper Hessenberg *and* Hermitian must be real, symmetric, and tridiagonal. This is a _huge_ simplification.
+process simplifies dramatically. We can prove that $\mathbf{H}_k = \mathbf{V}_k^H \mathbf{A} \mathbf{V}_k$ must also be Hermitian. A matrix that is both upper Hessenberg _and_ Hermitian must be real, symmetric, and tridiagonal. This is a _huge_ simplification.
 
 In the literature, this projected matrix is denoted $\mathbf{T}_k$ to highlight its
 tridiagonal structure:
@@ -170,7 +166,6 @@ So we're left with a choice: whether we store all the basis vectors and solve th
 
 > There are also techniques to compress the basis vectors, have a look [here](https://arxiv.org/abs/2403.04390)
 
-
 # Two-Pass Algorithm
 
 Here's where we break the timing deadlock. The insight that we don't actually need to store the basis vectors if we can afford to compute them twice
@@ -202,7 +197,7 @@ $$
 \beta_j = \|\tilde{\mathbf{v}}_{j+1}\|_2, \quad \mathbf{v}_{j+1} = \tilde{\mathbf{v}}_{j+1} / \beta_j
 $$
 
-At each step, we record $\alpha_j$ and $\beta_j$. But we *do not* store $\mathbf{v}_j$.
+At each step, we record $\alpha_j$ and $\beta_j$. But we _do not_ store $\mathbf{v}_j$.
 Instead, we discard it immediately after computing $\mathbf{v}_{j+1}$. In this way we only keep in memory at most just three vectors at any time ($\mathbf{v}_{j-1}$, $\mathbf{v}_j$, and the working vector $w_j$).
 
 After $k$ iterations, we have the full set $\{\alpha_1, \beta_1, \ldots, \alpha_k, \beta_k\}$. These $O(k)$ scalars define the tridiagonal matrix $\mathbf{T}_k$. We can now solve:
@@ -600,7 +595,6 @@ let f_tk_solver = |alphas: &[f64], betas: &[f64]| -> Result<Mat<f64>, anyhow::Er
 
 The closure takes the coefficient arrays, constructs the sparse tridiagonal matrix, and solves the system. The triplet format lets us build the matrix efficiently without knowing its structure in advance. The sparse LU solver leverages the tridiagonal structure to avoid dense factorization.
 
-
 # Some interesting results
 
 Now that we have a working implementation we can run some tests. The core idea of what we have done is simple: trade flops for better memory access. But does this trade actually pay off on real hardware? To find out, we need a reliable way to benchmark it.
@@ -670,7 +664,6 @@ Now, let's fix the iteration count at $k=500$ and vary $n$ from $50,000$ to $500
 
 Here we have to use a logarithmic y-axis to show both curves; the two-pass line is so flat relative to the one-pass line that it's otherwise invisible.
 
-
 ![Scalability Runtime](/assets/lanczos/scalability_k500_rho3_time.png)
 
 Runtime scales linearly with $n$ for both methods, as expected. Below $n=150,000$, the two methods have similar performance. This is the regime where both basis and working set fit in cache, or where the problem is small enough that memory latency is not the bottleneck.
@@ -681,7 +674,7 @@ As $n$ increases beyond $150,000$, the matrix-vector product time dominates. The
 
 Well, that's it. If you want to have a better look at the code or use it, it's all open source:
 
-* [Github Repository](https://github.com/lukefleed/two-pass-lanczos)
-* [LaTeX Report](https://github.com/lukefleed/two-pass-lanczos/raw/master/tex/report.pdf)
+- [Github Repository](https://github.com/lukefleed/two-pass-lanczos)
+- [LaTeX Report](https://github.com/lukefleed/two-pass-lanczos/raw/master/tex/report.pdf)
 
 This was more of an exploration than a production-ready library, so expect rough edges. But I hope it gives an interesting perspective on how algorithm engineering and low-level implementation details can alter what seems like a straightforward trade-off on a blackboard.
