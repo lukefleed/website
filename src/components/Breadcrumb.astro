@@ -4,12 +4,6 @@ const currentUrlPath = Astro.url.pathname.replace(/\/+$/, "");
 
 // Get url array from path
 const breadcrumbList = currentUrlPath.split("/").slice(1);
-
-// if breadcrumb is Home > Posts > 1 <etc>
-// replace Posts with Posts (page number)
-if (breadcrumbList[0] === "posts") {
-  breadcrumbList.splice(0, 2, `Posts (page ${breadcrumbList[1] || 1})`);
-}
 ---
 
 <nav class="mx-auto mt-8 mb-1 w-full max-w-app px-4" aria-label="breadcrumb">

@@ -1,5 +1,4 @@
 ---
-import { slugifyStr } from "@/utils/slugify";
 import { getPath } from "@/utils/getPath";
 import Datetime from "./Datetime.astro";
 
@@ -15,19 +14,34 @@ export interface Props {
     timezone?: string;
   };
   variant?: "h2" | "h3";
+  className?: string;
+  isHidden?: boolean;
 }
 
-const { variant = "h2", data, id, collection, filePath } = Astro.props;
+const {
+  variant = "h2",
+  data,
+  id,
+  collection,
+  filePath,
+  className,
+  isHidden = false,
+} = Astro.props;
 
 const { title, description, pubDatetime, modDatetime, timezone } = data;
 
 const headerProps = {
-  style: { viewTransitionName: slugifyStr(title) },
   class: "text-lg font-medium decoration-dashed hover:underline",
 };
 ---
 
-<li class="my-6">
+<li
+  class:list={[
+    "post-item my-6 transition-all duration-300",
+    className,
+    { hidden: isHidden },
+  ]}
+>
   <a
     href={getPath(id, filePath, collection)}
     class="inline-block text-lg font-medium text-accent decoration-dashed underline-offset-4 focus-visible:no-underline focus-visible:underline-offset-0"

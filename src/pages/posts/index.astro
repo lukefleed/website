@@ -1,0 +1,81 @@
+---
+import { getCollection } from "astro:content";
+import Main from "@/layouts/Main.astro";
+import Layout from "@/layouts/Layout.astro";
+import Header from "@/components/Header.astro";
+import Footer from "@/components/Footer.astro";
+import Card from "@/components/Card.astro";
+import getSortedPosts from "@/utils/getSortedPosts";
+import { SITE } from "@/config";
+
+const posts = await getCollection("blog", ({ data }) => !data.draft);
+const sortedPosts = getSortedPosts(posts);
+const INITIAL_VISIBLE = 5;
+---
+
+<Layout title={`Posts | ${SITE.title}`}>
+  <Header />
+  <Main pageTitle="Posts" pageDesc="All the articles I've posted.">
+    <ul>
+      {
+        sortedPosts.map((post, index) => (
+          <Card {...post} isHidden={index >= INITIAL_VISIBLE} />
+        ))
+      }
+    </ul>
+
+    {
+      sortedPosts.length > INITIAL_VISIBLE && (
+        <div
+          id="infinite-scroll-sentinel"
+          class="my-8 flex justify-center font-mono text-sm text-foreground/60"
+        >
+          <span class="animate-pulse">Loading more posts...</span>
+        </div>
+      )
+    }
+  </Main>
+
+  <Footer />
+</Layout>
+
+<script>
+  function setupInfiniteScroll() {
+    const sentinel = document.getElementById("infinite-scroll-sentinel");
+    const hiddenPosts = Array.from(
+      document.querySelectorAll<HTMLLIElement>(".post-item.hidden")
+    );
+
+    if (!sentinel || hiddenPosts.length === 0) {
+      if (sentinel) sentinel.style.display = "none";
+      return;
+    }
+
+    const BATCH_SIZE = 5;
+    const remainingPosts = [...hiddenPosts];
+
+    const observer = new IntersectionObserver(
+      entries => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting && remainingPosts.length > 0) {
+            const nextBatch = remainingPosts.splice(0, BATCH_SIZE);
+            nextBatch.forEach(postEl => {
+              postEl.classList.remove("hidden");
+            });
+
+            if (remainingPosts.length === 0) {
+              sentinel.style.display = "none";
+              observer.disconnect();
+            }
+          }
+        });
+      },
+      { rootMargin: "200px" }
+    );
+
+    observer.observe(sentinel);
+  }
+
+  document.addEventListener("astro:page-load", setupInfiniteScroll);
+  setupInfiniteScroll();
+</script>
