@@ -3,18 +3,32 @@ export interface Props {
   degree: string;
   href: string;
   title: string;
+  external?: boolean;
 }
 
-const { degree, href, title } = Astro.props;
+const { degree, href, title, external = true } = Astro.props;
 ---
 
 <a
   href={href}
-  class="group block border-l-2 border-border py-1.5 pl-3 transition hover:border-accent"
+  target={external ? "_blank" : "_self"}
+  rel={external ? "noopener noreferrer" : undefined}
+  class="group flex flex-col justify-between rounded-lg border border-border/70 bg-muted/20 p-3.5 transition hover:border-accent hover:bg-muted/40"
 >
-  <span class="block text-sm text-accent">{degree}</span>
+  <div class="mb-2 flex items-center justify-between gap-2">
+    <span
+      class="inline-block rounded-sm bg-accent/10 px-2 py-0.5 font-mono text-xs font-medium text-accent"
+    >
+      {degree}
+    </span>
+    <span
+      class="text-xs text-foreground/60 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-accent"
+    >
+      ↗
+    </span>
+  </div>
   <span
-    class="block leading-snug group-hover:underline group-hover:decoration-dashed"
+    class="text-sm leading-snug font-medium text-foreground group-hover:text-accent"
   >
     {title}
   </span>
