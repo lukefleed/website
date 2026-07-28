@@ -10,7 +10,7 @@
     h3,
     h4,
     th {
-      @apply mb-3 text-foreground;
+      @apply mb-3 text-foreground scroll-mt-6;
     }
 
     h3 {
@@ -117,10 +117,7 @@
 
   /* ===== Code Blocks & Syntax Highlighting ===== */
   .astro-code {
-    @apply flex border bg-(--shiki-light-bg) text-(--shiki-light) outline-border [&_span]:text-(--shiki-light);
-    /* Skip rendering of off-screen code blocks on large posts */
-    content-visibility: auto;
-    contain-intrinsic-size: auto 300px;
+    @apply relative flex border bg-(--shiki-light-bg) text-(--shiki-light) outline-border [&_span]:text-(--shiki-light);
   }
 
   html[data-theme="dark"] .astro-code {

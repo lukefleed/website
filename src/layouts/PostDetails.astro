@@ -235,17 +235,13 @@ const nextPost =
     const topClass = "top-(--file-name-offset)";
 
     for (const codeBlock of codeBlocks) {
-      const wrapper = document.createElement("div");
-      wrapper.style.position = "relative";
+      if (codeBlock.querySelector(".copy-code")) continue;
 
       const copyButton = document.createElement("button");
       copyButton.className = `copy-code absolute end-3 ${topClass} rounded bg-muted border border-muted px-2 py-1 text-xs leading-4 text-foreground font-medium`;
       copyButton.textContent = copyButtonLabel;
       codeBlock.setAttribute("tabindex", "0");
       codeBlock.appendChild(copyButton);
-
-      codeBlock.parentNode.insertBefore(wrapper, codeBlock);
-      wrapper.appendChild(codeBlock);
 
       copyButton.addEventListener("click", async () => {
         const code = codeBlock.querySelector("code");
