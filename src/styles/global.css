@@ -1,5 +1,10 @@
+@import url("https://fonts.googleapis.com/css2?family=Caveat:wght@500;600;700&display=swap");
 @import "tailwindcss";
 @import "./typography.css";
+
+.font-handwriting {
+  font-family: "Caveat", cursive, sans-serif;
+}
 
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
 
