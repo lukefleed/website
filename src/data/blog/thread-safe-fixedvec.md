@@ -5,9 +5,6 @@ title: Building a Thread-Safe, Bit-Packed Atomic Vector in Rust
 slug: thread-safe-fixedvec
 featured: true
 draft: true
-tags:
-  - Rust
-  - Succinct Data Structures
 description: Engineering a thread-safe, bit-packed integer vector in Rust, using a hybrid model of lock-free and lock-based concurrency to handle operations that span hardware word boundaries.
 ---
 

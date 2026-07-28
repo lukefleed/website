@@ -5,8 +5,6 @@ title: "An exact and fast algorithm for computing top-k closeness centrality"
 slug: imdb-graph
 featured: false
 draft: false
-tags:
-  - Algorithms and Data Structures
 ogImage: ""
 description: "An exact and fast algorithm for computing top-k closeness centrality, tested on the IMDb dataset"
 ---

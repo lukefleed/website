@@ -5,8 +5,6 @@ title: Queueing System with Potential for Recruiting Secondary Servers
 slug: nummarkov
 featured: false
 draft: false
-tags:
-  - Scientific Computing
 ogImage: ""
 description: Slides for a seminar on the topic of numerical methods for Markov Chains
 ---

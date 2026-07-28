@@ -5,8 +5,6 @@ title: Methods for solving PageRank with multiple damping factors
 slug: shifted-pow-gmres
 featured: false
 draft: false
-tags:
-  - Scientific Computing
 ogImage: ""
 description: Implementation of the shifted power method and the shifted GMRES method
 ---

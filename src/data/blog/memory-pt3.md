@@ -5,9 +5,6 @@ title: "Who Owns the Memory? Part 3: How Big Is your Type?"
 slug: who-owns-the-memory-pt3
 featured: false
 draft: false
-tags:
-  - Rust
-  - Programming
 description: "Type layout, fat pointers, and the cost of polymorphism."
 ---
 

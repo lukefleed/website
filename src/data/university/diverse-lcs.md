@@ -5,8 +5,6 @@ title: Finding Diverse Strings and Longest Common Sequences in a Graph
 slug: diverse-lcs
 featured: false
 draft: false
-tags:
-  - Algorithms and Data Structures
 ogImage: ""
 description: Slides for a seminar in bioinformatics.
 ---

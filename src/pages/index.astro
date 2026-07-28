@@ -63,38 +63,52 @@ const recentBlogPosts = sortedPosts;
       </p>
 
       <ul class="list-none pl-8">
-        <li class="mb-1">📕 Succinct data structures</li>
-        <li class="mb-1">📘 Algorithms and data structures</li>
+        <!-- <li class="mb-1">📙 Succinct data structures</li> -->
+        <li class="mb-1">📕 Algorithms and data structures</li>
         <li class="mb-1">📗 High-performance computing</li>
-        <li class="mb-1">📙 Rust and low-level code optimization</li>
+        <li class="mb-1">📘 Rust and low-level code optimization</li>
       </ul>
 
       <div class="space-y-2">
-        <p>You can read my theses here:</p>
+        <p>During my university years I have done some research in fields that intersect the topics above.</p>
         <div class="space-y-3">
           <ThesisLink
-            href="/thesis/bachelor_thesis.pdf"
-            degree="Bachelor's thesis"
-            title="Efficient Succinct Data Structures on Directed Acyclic Graphs"
+            href="https://arxiv.org/abs/2606.19213"
+            degree="Paper"
+            title="Evaluating Rust for Sparse Matrix Kernels in Scientific Computing"
           />
+          <ThesisLink
+            href="https://github.com/lukefleed/compressed-intvec"
+            degree="Rust Library"
+            title="Space-efficient compressed representations of integer vectors."
+          />
+        </div>
+        <p>You can also read my theses, both about succinct data structures:</p>
+        <div class="space-y-3">
           <ThesisLink
             href="/thesis/master_thesis.pdf"
             degree="Master's thesis"
             title="Compressed Representations of Set Collections"
           />
+          <ThesisLink
+            href="/thesis/bachelor_thesis.pdf"
+            degree="Bachelor's thesis"
+            title="Efficient Succinct Data Structures on Directed Acyclic Graphs"
+          />
         </div>
       </div>
 
       <p>
-        I am also a member of <a
+        I was also a member of <a
           href="https://phc.dm.unipi.it/"
           target="_blank"
           rel="noopener noreferrer"
           class="text-accent underline">PHC</a
-        >, a group of enthusiastic students interested in technology, software,
+        >
+        <!-- , a group of students interested in technology, software,
         hardware, and how they work together. We manage servers, websites, and
         services for the mathematics department students, and organize seminars
-        about topics related to mathematics and computer science.
+        about topics related to mathematics and computer science. -->
       </p>
       {
         // only display if at least one social link is enabled

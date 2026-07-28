@@ -5,9 +5,6 @@ title: "Who Owns the Memory? Part 1: What is an Object?"
 slug: who-owns-the-memory-pt1
 featured: false
 draft: false
-tags:
-  - Rust
-  - Programming
 description: "Effective types, storage duration, and aliasing rules in C, C++, and Rust."
 ---
 

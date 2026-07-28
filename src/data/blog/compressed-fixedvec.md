@@ -5,9 +5,6 @@ title: Engineering a fixed-width bit-packed Integer Vector in Rust
 slug: compressed-fixedvec
 featured: true
 draft: false
-tags:
-  - Rust
-  - Succinct Data Structures
 description: Design and implementation of a memory-efficient, fixed-width bit-packed integer vector in Rust, with extremely fast random access.
 ---
 

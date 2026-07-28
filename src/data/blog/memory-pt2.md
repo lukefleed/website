@@ -5,9 +5,6 @@ title: "Who Owns the Memory? Part 2: Who Calls Free?"
 slug: who-owns-the-memory-pt2
 featured: false
 draft: false
-tags:
-  - Rust
-  - Programming
 description: "Destructors, RAII, and the ownership question."
 ---
 

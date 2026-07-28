@@ -5,8 +5,6 @@ title: Identifying small worlds networks
 slug: small-worlds
 featured: false
 draft: false
-tags:
-  - Algorithms and Data Structures
 ogImage: ""
 description: Spatial Networks and small words, an experimental study on real-world datasets. Developed in Python with parallel processing support for the computation of the heaviest functions.
 ---

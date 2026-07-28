@@ -1,4 +1,5 @@
 import { defineConfig, envField } from "astro/config";
+import { unified } from "@astrojs/markdown-remark";
 import tailwindcss from "@tailwindcss/vite";
 import sitemap from "@astrojs/sitemap";
 import remarkToc from "remark-toc";
@@ -22,12 +23,14 @@ export default defineConfig({
     }),
   ],
   markdown: {
-    remarkPlugins: [
-      remarkMath,
-      remarkToc,
-      [remarkCollapse, { test: "Table of contents" }],
-    ],
-    rehypePlugins: [rehypeKatex],
+    processor: unified({
+      remarkPlugins: [
+        remarkMath,
+        remarkToc,
+        [remarkCollapse, { test: "Table of contents" }],
+      ],
+      rehypePlugins: [rehypeKatex],
+    }),
     shikiConfig: {
       // For more themes, visit https://shiki.style/themes
       themes: { light: "min-light", dark: "night-owl" },
@@ -38,7 +41,8 @@ export default defineConfig({
         transformerNotationHighlight(),
         transformerNotationWordHighlight(),
         transformerNotationDiff({ matchAlgorithm: "v3" }),
-      ],
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ] as any,
     },
   },
   vite: {

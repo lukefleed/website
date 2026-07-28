@@ -5,8 +5,6 @@ title: G2 cheat sheet
 slug: g2-cheat-sheet
 featured: false
 draft: false
-tags:
-  - Math
 ogImage: ""
 description: 🇮🇹 Versione compatta senza dimostrazioni delle dispense di Geometria 2 di Francesco Sorce.
 ---

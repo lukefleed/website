@@ -5,9 +5,6 @@ title: Cache-Friendly, Low-Memory Lanczos Algorithm in Rust
 slug: cache-friendly-low-memory-lanczos
 featured: true
 draft: false
-tags:
-  - Rust
-  - Scientific Computing
 description: How a bit of algorithm engineering and low-level details can alter what seems like a straightforward trade-off on a blackboard.
 ---
 
