@@ -8,6 +8,7 @@ import LinkButton from "@/components/LinkButton.astro";
 import Card from "@/components/Card.astro";
 import Hr from "@/components/Hr.astro";
 import ThesisLink from "@/components/ThesisLink.astro";
+import ProfileCarousel from "@/components/ProfileCarousel.astro";
 import getSortedPosts from "@/utils/getSortedPosts";
 import IconRss from "@/assets/icons/IconRss.svg";
 import IconArrowRight from "@/assets/icons/IconArrowRight.svg";
@@ -24,19 +25,9 @@ const recentBlogPosts = sortedPosts;
   <Header />
   <main id="main-content" data-layout="index">
     <section id="hero" class="space-y-4 pt-8 pb-6">
-      <div class="mb-4 sm:float-right sm:ml-4">
-        <img
-          src="/pania-invernale.jpg"
-          alt="Luca Lombardo"
-          class="profile-image"
-          width={250}
-          height={250}
-          fetchpriority="high"
-          decoding="async"
-        />
-      </div>
+      <ProfileCarousel />
       <h1 class="my-4 inline-block text-4xl font-bold sm:my-8 sm:text-5xl">
-        About Me 🖖
+        About Me🖖
       </h1>
       <a
         target="_blank"

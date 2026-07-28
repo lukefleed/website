@@ -1,0 +1,197 @@
+---
+export interface Props {
+  images?: Array<{ src: string; alt: string }>;
+}
+
+const images = Astro.props.images ?? [
+  { src: "/pania-invernale.jpg", alt: "Luca Lombardo - Pania Invernale" },
+  { src: "/propic-dentegigante.jpg", alt: "Luca Lombardo - Dente del Gigante" },
+  { src: "/propic-traildolomiti.jpg", alt: "Luca Lombardo - Trail Dolomiti" },
+  { src: "/propic-castore.jpg", alt: "Luca Lombardo - Castore" },
+  { src: "/propic-surf.jpg", alt: "Luca Lombardo - Surf" },
+];
+---
+
+<div class="profile-carousel-container relative mb-4 sm:float-right sm:ml-4">
+  <div
+    id="profile-carousel"
+    class="group relative mx-auto h-[250px] w-[250px] overflow-hidden rounded-full border-2 border-accent bg-muted/20 shadow-md"
+  >
+    <!-- Images -->
+    {
+      images.map((img, index) => (
+        <img
+          src={img.src}
+          alt={img.alt}
+          width={250}
+          height={250}
+          decoding="async"
+          loading={index === 0 ? "eager" : "lazy"}
+          fetchpriority={index === 0 ? "high" : "low"}
+          class:list={[
+            "carousel-slide absolute inset-0 h-full w-full object-cover transition-opacity duration-700 ease-in-out",
+            index === 0 ? "z-10 opacity-100" : "z-0 opacity-0",
+          ]}
+          data-slide-index={index}
+        />
+      ))
+    }
+
+    <!-- Overlay Navigation Arrows (visible on hover/touch) -->
+    <button
+      type="button"
+      id="carousel-prev"
+      class="absolute top-1/2 left-2 z-20 -translate-y-1/2 rounded-full bg-background/75 p-1.5 text-foreground opacity-0 transition-opacity duration-200 group-hover:opacity-90 hover:bg-accent hover:text-white focus:opacity-100"
+      aria-label="Previous photo"
+    >
+      <svg
+        class="h-4 w-4 rtl:rotate-180"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        stroke-width="2.5"
+      >
+        <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"
+        ></path>
+      </svg>
+    </button>
+    <button
+      type="button"
+      id="carousel-next"
+      class="absolute top-1/2 right-2 z-20 -translate-y-1/2 rounded-full bg-background/75 p-1.5 text-foreground opacity-0 transition-opacity duration-200 group-hover:opacity-90 hover:bg-accent hover:text-white focus:opacity-100"
+      aria-label="Next photo"
+    >
+      <svg
+        class="h-4 w-4 rtl:rotate-180"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        stroke-width="2.5"
+      >
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"
+        ></path>
+      </svg>
+    </button>
+
+    <!-- Dot Indicators -->
+    <div
+      class="absolute bottom-2 left-1/2 z-20 flex -translate-x-1/2 gap-1.5 rounded-full bg-black/40 px-2 py-1 backdrop-blur-xs"
+    >
+      {
+        images.map((_, index) => (
+          <button
+            type="button"
+            class:list={[
+              "carousel-dot h-2 w-2 rounded-full transition-all duration-300",
+              index === 0 ? "w-4 bg-accent" : "bg-white/60 hover:bg-white",
+            ]}
+            data-dot-index={index}
+            aria-label={`Go to slide ${index + 1}`}
+          />
+        ))
+      }
+    </div>
+  </div>
+</div>
+
+<script>
+  function initProfileCarousel() {
+    const container = document.getElementById("profile-carousel");
+    if (!container) return;
+
+    const slides = Array.from(
+      container.querySelectorAll<HTMLImageElement>(".carousel-slide")
+    );
+    const dots = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".carousel-dot")
+    );
+    const prevBtn =
+      container.querySelector<HTMLButtonElement>("#carousel-prev");
+    const nextBtn =
+      container.querySelector<HTMLButtonElement>("#carousel-next");
+
+    if (slides.length <= 1) return;
+
+    let currentIndex = 0;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const INTERVAL = 4500; // 4.5 seconds
+
+    function goToSlide(index: number) {
+      if (index === currentIndex) return;
+
+      slides[currentIndex].classList.remove("opacity-100", "z-10");
+      slides[currentIndex].classList.add("opacity-0", "z-0");
+
+      dots[currentIndex].classList.remove("bg-accent", "w-4");
+      dots[currentIndex].classList.add("bg-white/60");
+
+      currentIndex = (index + slides.length) % slides.length;
+
+      slides[currentIndex].classList.remove("opacity-0", "z-0");
+      slides[currentIndex].classList.add("opacity-100", "z-10");
+
+      dots[currentIndex].classList.remove("bg-white/60");
+      dots[currentIndex].classList.add("bg-accent", "w-4");
+    }
+
+    function nextSlide() {
+      goToSlide(currentIndex + 1);
+    }
+
+    function prevSlide() {
+      goToSlide(currentIndex - 1);
+    }
+
+    function startAutoPlay() {
+      stopAutoPlay();
+      timer = setInterval(nextSlide, INTERVAL);
+    }
+
+    function stopAutoPlay() {
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+      }
+    }
+
+    // Event listeners for prev/next buttons
+    prevBtn?.addEventListener("click", e => {
+      e.preventDefault();
+      prevSlide();
+      startAutoPlay();
+    });
+
+    nextBtn?.addEventListener("click", e => {
+      e.preventDefault();
+      nextSlide();
+      startAutoPlay();
+    });
+
+    // Event listeners for dots
+    dots.forEach((dot, idx) => {
+      dot.addEventListener("click", e => {
+        e.preventDefault();
+        goToSlide(idx);
+        startAutoPlay();
+      });
+    });
+
+    // Pause on hover
+    container.addEventListener("mouseenter", stopAutoPlay);
+    container.addEventListener("mouseleave", startAutoPlay);
+
+    // Clean up on Astro page swap
+    document.addEventListener(
+      "astro:before-swap",
+      () => {
+        stopAutoPlay();
+      },
+      { once: true }
+    );
+
+    startAutoPlay();
+  }
+
+  document.addEventListener("astro:page-load", initProfileCarousel);
+  initProfileCarousel();
+</script>
