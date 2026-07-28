@@ -37,11 +37,11 @@ const images = Astro.props.images ?? [
       ))
     }
 
-    <!-- Overlay Navigation Arrows (visible on hover/touch) -->
+    <!-- Overlay Navigation Arrows (always visible on mobile, hover on desktop) -->
     <button
       type="button"
       id="carousel-prev"
-      class="absolute top-1/2 left-2 z-20 -translate-y-1/2 rounded-full bg-background/75 p-1.5 text-foreground opacity-0 transition-opacity duration-200 group-hover:opacity-90 hover:bg-accent hover:text-white focus:opacity-100"
+      class="absolute top-1/2 left-2 z-20 -translate-y-1/2 rounded-full bg-background/75 p-1.5 text-foreground opacity-80 transition-opacity duration-200 hover:bg-accent hover:text-white focus:opacity-100 sm:opacity-0 sm:group-hover:opacity-90"
       aria-label="Previous photo"
     >
       <svg
@@ -58,7 +58,7 @@ const images = Astro.props.images ?? [
     <button
       type="button"
       id="carousel-next"
-      class="absolute top-1/2 right-2 z-20 -translate-y-1/2 rounded-full bg-background/75 p-1.5 text-foreground opacity-0 transition-opacity duration-200 group-hover:opacity-90 hover:bg-accent hover:text-white focus:opacity-100"
+      class="absolute top-1/2 right-2 z-20 -translate-y-1/2 rounded-full bg-background/75 p-1.5 text-foreground opacity-80 transition-opacity duration-200 hover:bg-accent hover:text-white focus:opacity-100 sm:opacity-0 sm:group-hover:opacity-90"
       aria-label="Next photo"
     >
       <svg
@@ -72,25 +72,6 @@ const images = Astro.props.images ?? [
         ></path>
       </svg>
     </button>
-
-    <!-- Dot Indicators -->
-    <div
-      class="absolute bottom-2 left-1/2 z-20 flex -translate-x-1/2 gap-1.5 rounded-full bg-black/40 px-2 py-1 backdrop-blur-xs"
-    >
-      {
-        images.map((_, index) => (
-          <button
-            type="button"
-            class:list={[
-              "carousel-dot h-2 w-2 rounded-full transition-all duration-300",
-              index === 0 ? "w-4 bg-accent" : "bg-white/60 hover:bg-white",
-            ]}
-            data-dot-index={index}
-            aria-label={`Go to slide ${index + 1}`}
-          />
-        ))
-      }
-    </div>
   </div>
 </div>
 
@@ -101,9 +82,6 @@ const images = Astro.props.images ?? [
 
     const slides = Array.from(
       container.querySelectorAll<HTMLImageElement>(".carousel-slide")
-    );
-    const dots = Array.from(
-      container.querySelectorAll<HTMLButtonElement>(".carousel-dot")
     );
     const prevBtn =
       container.querySelector<HTMLButtonElement>("#carousel-prev");
@@ -122,16 +100,10 @@ const images = Astro.props.images ?? [
       slides[currentIndex].classList.remove("opacity-100", "z-10");
       slides[currentIndex].classList.add("opacity-0", "z-0");
 
-      dots[currentIndex].classList.remove("bg-accent", "w-4");
-      dots[currentIndex].classList.add("bg-white/60");
-
       currentIndex = (index + slides.length) % slides.length;
 
       slides[currentIndex].classList.remove("opacity-0", "z-0");
       slides[currentIndex].classList.add("opacity-100", "z-10");
-
-      dots[currentIndex].classList.remove("bg-white/60");
-      dots[currentIndex].classList.add("bg-accent", "w-4");
     }
 
     function nextSlide() {
@@ -165,15 +137,6 @@ const images = Astro.props.images ?? [
       e.preventDefault();
       nextSlide();
       startAutoPlay();
-    });
-
-    // Event listeners for dots
-    dots.forEach((dot, idx) => {
-      dot.addEventListener("click", e => {
-        e.preventDefault();
-        goToSlide(idx);
-        startAutoPlay();
-      });
     });
 
     // Pause on hover
