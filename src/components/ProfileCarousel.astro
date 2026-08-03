@@ -75,48 +75,7 @@ const images = Astro.props.images ?? [
     </button>
   </div>
 
-  <!-- Handwritten Blackboard Note -->
-  <div
-    class="relative mt-8 flex flex-col items-center px-4 text-center text-accent select-none sm:w-[250px] sm:translate-x-10 sm:items-start sm:px-0 sm:text-left"
-  >
-    <!-- Mobile Arrow: Centered above text on mobile, pointing UP towards photo circle -->
-    <svg
-      class="mb-1 h-8 w-8 shrink-0 -rotate-6 transform text-accent sm:hidden"
-      viewBox="0 0 50 50"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="2.5"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-    >
-      <!-- Chalk arrow pointing UP towards photo circle -->
-      <path d="M 20,44 C 17,30 23,18 20,8"></path>
-      <path d="M 11,17 L 20,6 L 29,17"></path>
-    </svg>
 
-    <div class="relative inline-block">
-      <!-- Desktop Arrow: Centered above text on desktop -->
-      <svg
-        class="absolute -top-7 left-1/2 hidden h-8 w-8 -translate-x-1/2 -rotate-6 transform text-accent sm:block"
-        viewBox="0 0 50 50"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2.5"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      >
-        <!-- Chalk arrow pointing UP towards photo circle -->
-        <path d="M 20,44 C 17,30 23,18 20,8"></path>
-        <path d="M 11,17 L 20,6 L 29,17"></path>
-      </svg>
-
-      <span
-        class="font-handwriting block -rotate-4 transform text-xl font-semibold tracking-wide text-nowrap sm:text-2xl"
-      >
-        I really like mountains!
-      </span>
-    </div>
-  </div>
 </div>
 
 <script>
