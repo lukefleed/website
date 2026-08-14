@@ -558,6 +558,158 @@ The sequence has not become describable with zero bits. The empirical distributi
 
 ## The Model Is Part of the Message
 
+Increasing the context length gives the model more information about each symbol. For a fixed sequence $S$, sufficiently long contexts occur rarely, and some occur only once. Whenever an observed context $\omega$ has a single observed continuation, its empirical distribution assigns probability one to that continuation. The corresponding contribution to the code length is $-\log_2 1=0$. If every relevant context determines its continuation in this way, the empirical entropy can fall all the way to
+
+$$
+\mathcal{H}_k(S)=0
+$$
+
+The sequence has not become free to describe. The probabilities used in this calculation were obtained from the sequence itself. A decoder can assign probability one to the correct continuation only if it knows which continuation followed each context. For an alphabet of size $\sigma$, a direct table containing one distribution for every context in $\Sigma^k$ may require on the order of
+
+$$
+\sigma^{k+1}\log_2 n
+$$
+
+bits to store its counts. Sparse representations can avoid entries for contexts that never occur, but they must still identify the observed contexts and their continuations. As $k$ grows, the encoded sequence may become shorter because information has moved into the model that describes it.
+
+Let $M$ contain everything the decoder needs to reproduce the probabilities used by the encoder. The length of a complete description is then
+
+$$
+L(M,S)=L(M)+L(S\mid M)
+$$
+
+where $L(M)$ describes the model and $L(S\mid M)$ describes the sequence using that model. Minimizing only the second term rewards any model capable of remembering the input. Minimizing their sum rewards a larger model only when the reduction in the second term pays for its description. This two-part accounting is the simplest form of the [minimum description length principle](https://web.mit.edu/6.433/www/handouts/minimumdescriptionlength.pdf).
+
+The same accounting separates three quantities that are easily conflated when prediction is described as compression. Suppose that objects are generated according to a source distribution $P$, while the compressor assigns probabilities according to a model $Q$. The entropy of the source is
+
+$$
+H(P) = -\sum_x P(x)\log_2 P(x)
+$$
+
+If the true distribution were available, this would be the smallest achievable expected description length, apart from the integer rounding and termination costs of a concrete code. The compressor does not usually know $P$. When it uses $Q$, its expected ideal code length becomes the [cross-entropy](https://arxiv.org/html/2309.10668v2#S2.SS6)
+
+$$
+H(P,Q) = -\sum_x P(x)\log_2 Q(x)
+$$
+
+Here $Q(x)$ must be positive whenever $P(x)$ is positive. Otherwise an object that can be produced by the source receives zero probability from the model and requires an unbounded ideal code length.
+
+Subtracting the source entropy from the cross-entropy gives
+
+$$
+\begin{aligned}
+H(P,Q)-H(P) &= \sum_x P(x)\log_2\frac{P(x)}{Q(x)} \\
+&= D_{\mathrm{KL}}(P\mathbin\Vert Q)
+\end{aligned}
+$$
+
+The quantity $D_{\mathrm{KL}}(P\mathbin\Vert Q)$ is the [Kullback–Leibler divergence](https://en.wikipedia.org/wiki/Kullback%E2%80%93Leibler_divergence) from the source to the model. It is non-negative and vanishes when $P$ and $Q$ agree on the outcomes that the source can produce. Therefore,
+
+$$
+H(P,Q)=H(P)+D_{\mathrm{KL}}(P\mathbin\Vert Q)
+$$
+
+For sequences, $P$ and $Q$ can be read as distributions over complete strings. Factoring both distributions into conditional probabilities also factors their divergence:
+
+$$
+D_{\mathrm{KL}}(P_{1:n}\mathbin\Vert Q_{1:n}) = \sum_{i=1}^{n} \mathbb{E}_{X_{<i}\sim P} \left[ D_{\mathrm{KL}} \left( P(\cdot\mid X_{<i}) \mathbin\Vert Q(\cdot\mid X_{<i}) \right) \right]
+$$
+
+Each term measures the expected number of extra bits paid at one position because the predictive distribution differs from the source distribution. Better predictions reduce these mismatch costs, and an entropy coder converts that reduction into a shorter bitstream.
+
+The [ngrok article](https://ngrok.com/blog/compression-is-prediction) is right that better probability estimates lead to better compression. The quantity reduced by a better model is $H(P,Q)$, through a reduction of $D_{\mathrm{KL}}(P\mathbin\Vert Q)$. For a fixed source $P$, improving $Q$ does not change $H(P)$. Calling both quantities entropy hides the difference between uncertainty produced by the source and extra bits paid because the compressor uses the wrong probabilities.
+
+Empirical entropy adds one more qualification. The distribution used to compute $\mathcal{H}_k(S)$ is fitted to the same sequence whose length is being measured. Increasing $k$ can reduce this fitted cost even when the total description becomes longer. The relevant comparison is therefore not between models according to $\mathcal{H}_k(S)$ alone, but between their complete lengths:
+
+$$
+\min_M \bigl(L(M)+L(S\mid M)\bigr)
+$$
+
+Whether $L(M)$ appears in the transmitted bitstream depends on what the encoder and decoder already share. If the model is fixed by the file format, the protocol, or an external agreement, it need not be sent with every sequence. Its cost has become shared information and may be amortized across many messages, but it has not ceased to exist.
+
+If the model is fitted before compression and is not already available to the decoder, its tables, parameters, or weights must accompany the encoded data. The paper [*Language Modeling Is Compression*](https://arxiv.org/html/2309.10668v2#S3.SS2) calls the size obtained without those parameters the *raw compression rate*. Its *adjusted compression rate* adds the model size to the encoded data. A larger language model may obtain a lower log-loss while producing a worse adjusted rate when its parameters are used to compress too little data.
+
+A third possibility is to let encoder and decoder learn the model in the same order. They begin from the same state, encode a symbol using the current distribution, update the model after that symbol becomes known, and repeat. The decoder can reconstruct every update from the prefix it has already decoded, so the final model does not need to be transmitted. This [prequential or online code](https://arxiv.org/html/2309.10668v2#S3.SS2) replaces a separate parameter description with the extra bits paid while the model is still learning. The update rule, its initial state, and any randomness affecting it must still be shared.
+
+Once these costs are included, compression measures more than the quality of a predictor. It measures how concisely the predictor and its remaining errors describe the data together. Even that complete length only concerns reconstruction of the whole sequence. A representation may occupy few bits while still requiring the entire sequence to be decoded before any part of it can be used.
+
+
 ## The Bitstream Is Not Always the Final Object
 
+The length $L(M)+L(S\mid M)$ measures the number of bits needed to describe the model and reconstruct the sequence. It does not determine what can be done with those bits before the reconstruction is complete.
+
+Consider a vector
+
+$$
+A=(a_0,\ldots,a_{n-1})
+$$
+
+whose values belong to $\{0,\ldots,u-1\}$. Let
+
+$$
+b=\lceil\log_2 u\rceil
+$$
+
+A [bit-packed representation](https://lukefleed.xyz/posts/compressed-fixedvec/) assigns exactly $b$ consecutive bits to each value, using $nb$ bits for the payload, apart from alignment and metadata. The position of $a_i$ begins at bit $ib$, so the representation can recover it by reading the machine words that intersect those $b$ bits, shifting them, and applying a mask. When $b$ fits within a machine word, this takes a constant number of memory accesses and arithmetic operations.
+
+This representation does not exploit differences in frequency. Every value receives the same number of bits. If the values follow a non-uniform distribution, or if their probabilities depend on earlier values, an entropy coder may produce a shorter stream:
+
+$$
+L(A\mid M) \approx \sum_{i=0}^{n-1} -\log_2 Q(a_i\mid a_{<i})
+$$
+
+The shorter stream provides a different access contract. In an ordinary arithmetic-coded stream, the decoding state at position $i$ depends on the symbols that precede it. If the model also uses their context, its next distribution depends on the same prefix. Recovering $a_i$ therefore requires decoding from the beginning of the stream or from an earlier checkpoint whose coding and model states have been stored.
+
+The bit-packed vector may occupy more space while answering `vector[i]` directly. Its compression comes from restricting the possible value at each position to an alphabet of size $u$, rather than from predicting which value will occur. When all values remain equally plausible, fixed-width packing uses the information supplied by that restriction without inventing a non-uniform model.
+
+A compressed archive needs an encoding $E$ and a decoder $D$ satisfying
+
+$$
+D(E(A))=A
+$$
+
+Once the whole vector can be reconstructed, the encoding has fulfilled its contract. A compressed representation may be required to satisfy a stronger condition. It must support an access algorithm such that
+
+$$
+\operatorname{Access}(R(A),i)=a_i
+$$
+
+without first reconstructing all of $A$.
+
+Checkpoints can give an entropy-coded stream faster access, but each checkpoint occupies space. Smaller blocks reduce the amount of decoding required for an access and increase the number of stored states. Larger blocks save metadata and increase access time. The objective is no longer to minimize the bitstream without qualification. It becomes
+
+$$
+\min_R |R(A)| \qquad \text{subject to} \qquad T_{\operatorname{Access}}(R)\leq t
+$$
+
+for a chosen access-time bound $t$.
+
+The operation need not be random access, and the object need not be a vector. The same issue arises whenever compressed data must be searched, traversed, compared, or partially decoded. The required operations constrain which short descriptions are useful and how much auxiliary information they need.
+
+An entropy coder answers how few bits are required to reproduce an object under a probability model. A compressed representation must also encode enough structure to perform the operations expected by its users. The decoder’s task is therefore part of the compression problem, together with the family of possible objects and the information already shared with it.
+
 ## So, Is Compression Prediction?
+
+For a probabilistic sequence, the connection can now be stated precisely. The probability assigned to a complete sequence factors as
+
+$$
+P(x_{1:n}) = \prod_{i=1}^{n}P(x_i\mid x_{<i})
+$$
+
+and its ideal description length is
+
+$$
+-\log_2 P(x_{1:n}) = \sum_{i=1}^{n} -\log_2 P(x_i\mid x_{<i})
+$$
+
+A predictor that returns each conditional distribution supplies the probabilities needed by an entropy coder. Its cumulative log-loss is the ideal length of the resulting encoding. Improving those distributions reduces cross-entropy by reducing the divergence between the model and the source. Arithmetic coding converts the resulting probabilities into a lossless bitstream whose length approaches that cumulative loss.
+
+Within these conditions, prediction and compression optimize the same quantity. Prediction must mean assigning a probability distribution to every possible continuation, rather than selecting a single continuation. Performance must be measured by log-loss. Encoder and decoder must reproduce the same probabilities. The probabilities must then be converted into a decodable code.
+
+Compression begins before any of these conditions are imposed. If an object belongs to a finite family $\mathcal{F}$, distinguishing its members requires about $\log_2|\mathcal{F}|$ bits even when no probability distribution is available. A source distribution refines this count by making some alternatives cheaper than others. When the object is a sequence, the chain rule rewrites those costs as successive conditional predictions. Prediction enters because the probability of a sequence admits this decomposition, not because every compressed object was originally a prediction problem.
+
+The resulting code length still omits information that the decoder may not possess. A fitted model must be shared, transmitted, or reconstructed online. A short sequential stream may also omit the structure required for direct access. Once these costs are included, a compressor is determined not only by its predictor, but by the complete agreement between encoder and decoder.
+
+The phrase *compression is prediction* identifies an exact and useful correspondence inside this agreement. It explains why language-model log-loss can be interpreted in bits and why a better probabilistic model can produce a shorter arithmetic code. Used as a definition of compression, however, it leaves out the choice of possible objects, the cost of specifying the model, and the operations that the encoded representation must continue to support.
+
+> Compression is prediction in the precise setting of probabilistic sequential modeling under log-loss. More generally, prediction is one way to assign description lengths. Compression asks for the shortest representation relative to the objects considered, the information shared with the decoder, and the operations the representation must support.
