@@ -451,14 +451,18 @@ $$
 The loss obtained from the empirical distribution is
 
 $$
--\log_2\widehat{P}_S(S) = n\sum_{a\in\Sigma} \widehat{P}_S(a) \log_2 \frac{1}{\widehat{P}_S(a)}
+\begin{aligned}
+-\log_2\widehat{P}_S(S)
+&= n\sum_{a\in\Sigma} \widehat{P}_S(a)\log_2 \frac{1}{\widehat{P}_S(a)}
+\end{aligned}
 $$
 
 Subtracting the two quantities gives
 
 $$
 \begin{aligned}
--\log_2q(S) + \log_2\widehat{P}_S(S) &= n\sum_{a\in\Sigma} \widehat{P}_S(a) \log_2 \frac{\widehat{P}_S(a)}{q(a)} \\
+-\log_2q(S) + \log_2\widehat{P}_S(S)
+&= n\sum_{a\in\Sigma} \widehat{P}_S(a)\log_2 \frac{\widehat{P}_S(a)}{q(a)} \\
 &= nD_{\mathrm{KL}}\left(\widehat{P}_S \mathbin\Vert q\right) \\
 &\geq 0
 \end{aligned}
@@ -489,7 +493,11 @@ Unlike Shannon entropy, $\mathcal{H}_0(S)$ is not defined from a source distribu
 The same quantity can be reached without beginning from a probabilistic model. Consider a bitvector $B$ of length $n$ containing exactly $m$ ones. If the decoder knows $n$ and $m$, then $B$ belongs to the family
 
 $$
-\mathcal{B}_{n,m} = \left\{ B\in\{0,1\}^n : B\text{ contains exactly }m\text{ ones} \right\}
+\begin{aligned}
+\mathcal{B}_{n,m}
+&= \bigl\{ B\in\{0,1\}^n : \\
+&\qquad B\text{ contains exactly }m\text{ ones} \bigr\}
+\end{aligned}
 $$
 
 A member of this family is determined by choosing which $m$ positions contain a one, so
@@ -582,7 +590,12 @@ $$
 and consider its type class
 
 $$
-\mathcal{T}(n_a) = \left\{ T\in\Sigma^n : T\text{ contains exactly }n_a\text{ occurrences of each }a\in\Sigma \right\}
+\begin{aligned}
+\mathcal{T}(n_a)
+&= \bigl\{ T\in\Sigma^n : \\
+&\qquad T\text{ contains exactly }n_a\text{ occurrences} \\
+&\qquad \text{of each }a\in\Sigma \bigr\}
+\end{aligned}
 $$
 
 where $\sum_{a\in\Sigma}n_a=n$. A sequence in this class is obtained by choosing which positions contain each symbol, so
@@ -595,7 +608,9 @@ Every sequence in this type class receives the same probability under the empiri
 
 $$
 \begin{aligned}
-\widehat{P}_S(T) &= \prod_{\substack{a\in\Sigma \\ n_a>0}} \left(\frac{n_a}{n}\right)^{n_a} \\
+\widehat{P}_S(T)
+&= \prod_{\substack{a\in\Sigma \\ n_a>0}}
+\left(\frac{n_a}{n}\right)^{n_a} \\
 &= 2^{-n\mathcal{H}_0(S)}
 \end{aligned}
 $$
@@ -639,7 +654,11 @@ $$
 Taking logarithms produces
 
 $$
-n\mathcal{H}_0(S) - |\Sigma|\log_2(n+1) \leq \log_2 \frac{n!}{\prod_{a\in\Sigma}n_a!} \leq n\mathcal{H}_0(S)
+\begin{aligned}
+n\mathcal{H}_0(S) - |\Sigma|\log_2(n+1)
+&\leq \log_2 \frac{n!}{\prod_{a\in\Sigma}n_a!} \\
+&\leq n\mathcal{H}_0(S)
+\end{aligned}
 $$
 
 This is the general form of the [method of types](https://ieeexplore.ieee.org/document/720546/). Equivalently, there exists a quantity $\Delta(S)$ such that
@@ -667,7 +686,11 @@ Both quantities depend only on the composition of $S$. Reordering the symbols le
 Assume $n\geq 1$ and $0\leq k<n$. To introduce context without assuming a known source, group positions according to the symbols that precede them. Fix a context length $k$. For $a\in\Sigma$ and $\omega\in\Sigma^k$, define
 
 $$
-n_{\omega a} = \left| \left\{ i\in\{k+1,\ldots,n\} : s_{i-k:i-1}=\omega,\ s_i=a \right\} \right|
+\begin{aligned}
+n_{\omega a}
+&= \Bigl| \bigl\{ i\in\{k+1,\ldots,n\} : \\
+&\qquad s_{i-k:i-1}=\omega,\ s_i=a \bigr\} \Bigr|
+\end{aligned}
 $$
 
 and let
@@ -687,13 +710,21 @@ $$
 for every observed context with $n_\omega>0$. The same maximum-likelihood argument used in the zero-order case applies independently to each context. The smallest log-loss obtained by assigning one distribution to the symbols following $\omega$ is
 
 $$
-\sum_{\substack{a\in\Sigma \\ n_{\omega a}>0}} n_{\omega a} \log_2 \frac{n_\omega}{n_{\omega a}}
+\begin{aligned}
+\sum_{\substack{a\in\Sigma \\ n_{\omega a}>0}}
+n_{\omega a}\log_2 \frac{n_\omega}{n_{\omega a}}
+\end{aligned}
 $$
 
 Summing over the observed contexts gives
 
 $$
-n\mathcal{H}_k(S) = \sum_{\substack{\omega\in\Sigma^k \\ n_\omega>0}} \sum_{\substack{a\in\Sigma \\ n_{\omega a}>0}} n_{\omega a} \log_2 \frac{n_\omega}{n_{\omega a}}
+\begin{aligned}
+n\mathcal{H}_k(S)
+&= \sum_{\substack{\omega\in\Sigma^k \\ n_\omega>0}}
+\sum_{\substack{a\in\Sigma \\ n_{\omega a}>0}}
+n_{\omega a}\log_2 \frac{n_\omega}{n_{\omega a}}
+\end{aligned}
 $$
 
 This defines the [$k$-th order empirical entropy](https://arxiv.org/abs/0708.2084) under the boundary convention that only positions with a complete length-$k$ context contribute to the sum.
@@ -701,7 +732,11 @@ This defines the [$k$-th order empirical entropy](https://arxiv.org/abs/0708.208
 Equivalently, let $S_\omega$ be the sequence formed by collecting, in their original order, all symbols that follow occurrences of $\omega$. Then
 
 $$
-\mathcal{H}_k(S) = \frac{1}{n} \sum_{\substack{\omega\in\Sigma^k \\ n_\omega>0}} |S_\omega| \mathcal{H}_0(S_\omega)
+\begin{aligned}
+\mathcal{H}_k(S)
+&= \frac{1}{n} \sum_{\substack{\omega\in\Sigma^k \\ n_\omega>0}}
+|S_\omega| \mathcal{H}_0(S_\omega)
+\end{aligned}
 $$
 
 Each $S_\omega$ is itself a sequence over $\Sigma$. The zero-order analysis applies separately to it. Its empirical distribution is the maximum-likelihood model for the symbols observed after $\omega$, while its multinomial type class counts the alternative sequences with the same conditional composition.
@@ -777,7 +812,12 @@ $$
 For sequential distributions, relative entropy decomposes across positions:
 
 $$
-D_{\mathrm{KL}}\left(P_{1:n}\mathbin\Vert Q_{1:n}\right) = \sum_{i=1}^n \mathbb{E}_{X_{<i}\sim P} \left[ D_{\mathrm{KL}} \left( P(\cdot\mid X_{<i}) \mathbin\Vert Q(\cdot\mid X_{<i}) \right) \right]
+\begin{aligned}
+D_{\mathrm{KL}}\left(P_{1:n}\mathbin\Vert Q_{1:n}\right)
+&= \sum_{i=1}^n \mathbb{E}_{X_{<i}\sim P}
+ \Bigl[ D_{\mathrm{KL}} \bigl( P(\cdot\mid X_{<i}) \\
+&\qquad\qquad \mathbin\Vert Q(\cdot\mid X_{<i}) \bigr) \Bigr]
+\end{aligned}
 $$
 
 Each term is the expected number of additional bits paid at one position because the model’s conditional distribution differs from the source distribution.
