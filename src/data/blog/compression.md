@@ -857,19 +857,19 @@ Bitstream length alone answers only the bare reconstruction problem. A compresse
 
 ## So, Is Compression Prediction?
 
-So, is compression prediction? Once the coding problem has been fixed, *yes*. A sequential probability model assigns ideal payload lengths through logarithmic loss, while the lengths of any uniquely decodable code induce probability weights that can be factored into next-symbol conditionals.
+So, is compression prediction? Once the coding problem has been fixed, *yes*, but in a precise sense. The equivalence concerns the ideal length of the encoded payload under an agreed model.
 
-Kolmogorov complexity makes this visible for an individual string, while the counting bound makes it visible for a finite family: a description-length problem can be posed before a next-symbol predictor exists.
+The qualification matters because a description-length problem can be posed before a next-symbol predictor exists. Kolmogorov complexity does so for an individual string, while the counting bound does so for a finite family of objects.
 
-What I felt these other explanations left implicit was the compression problem that must be fixed before the equivalence becomes meaningful. The encoder and decoder need an agreed family of objects, a serialization, a boundary between transmitted and shared information, and a decoding contract. None of these choices is determined by next-symbol prediction.
+What I felt the other explanations left implicit was the compression problem that must be fixed before the equivalence becomes meaningful. The encoder and decoder need an agreed family of objects, a serialization, a boundary between transmitted and shared information, and a decoding contract. None of these choices is determined by next-symbol prediction.
 
-Once those choices have been made, a sequential probability model assigns ideal payload lengths through logarithmic loss. Conversely, every uniquely decodable code over a fixed object family induces the distribution
+Once those choices have been made, the equivalence is exact at the level of code lengths. A sequential probability model assigns ideal payload lengths through logarithmic loss. Conversely, every uniquely decodable code over a fixed object family induces the distribution
 
 $$
 Q_C(x)=\frac{2^{-\ell_C(x)}}{S_C},
 $$
 
-and its lengths satisfy
+and its codeword lengths satisfy
 
 $$
 \ell_C(x)=-\log_2Q_C(x)-\log_2S_C.
@@ -877,6 +877,6 @@ $$
 
 After the objects have been serialized, the induced distribution can in turn be factored into next-symbol conditionals.
 
-That generality is also the limit of the slogan _Compression is Prediction_. Recasting a representation probabilistically does not explain why its objects were chosen, whether its model must be transmitted, or which operations it supports. A model with lower log-loss can produce a larger complete file after its parameters are included. An entropy-coded stream can use fewer bits than a bit-packed vector while failing to provide constant-time access. An empirical entropy of zero can still leave the decoder without the model needed to reconstruct the sequence.
+That generality is also the limit of the slogan *Compression is Prediction*. Recasting a representation probabilistically does not explain why its objects were chosen, whether its model must be transmitted, or which operations it supports. A model with lower log-loss can produce a larger complete file after its parameters are included. An empirical entropy of zero can still leave the decoder without the model needed to reconstruct the sequence.
 
-Compression is therefore prediction _after_ the coding problem has been fixed, and only at the level measured by the induced code lengths. For a shared sequential model under logarithmic loss, cumulative prediction error gives the ideal payload length up to coding overhead. It does not define what must be represented, what the decoder already knows, or what the representation must allow the decoder to do.
+Compression is therefore prediction *after* the coding problem has been fixed, and only at the level measured by the induced code lengths. For a shared sequential model, cumulative log-loss gives the ideal payload length up to coding overhead. It does not define what must be represented, what the decoder already knows, or what the representation must allow the decoder to do.
