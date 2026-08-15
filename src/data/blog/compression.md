@@ -8,7 +8,7 @@ draft: false
 description: When does lossless compression reduce to prediction, and what must already be fixed before that equivalence applies?
 ---
 
-Over the past few weeks, I have repeatedly encountered the same claim on Hacker News: **compression is prediction**. The recent discussion has approached it from both directions. Two 3Blue1Brown videos, [*Reinventing Entropy*](https://youtu.be/l6DKRf-fAAM) and [*But what is cross-entropy?*](https://youtu.be/GlYgs6v2YfU), derive entropy and cross-entropy from the limits of source coding. An [ngrok article](https://ngrok.com/blog/compression-is-prediction) follows the same mathematics through arithmetic coding and language models. [Salvatore Sanfilippo](https://www.youtube.com/watch?v=UgRiVUce9sY) asks how far the resulting identification between prediction and compression should be taken.
+Over the past few weeks, I have repeatedly encountered the same claim on Hacker News: **compression is prediction**. The recent discussion has approached it from both directions. Two 3Blue1Brown videos, [_Reinventing Entropy_](https://youtu.be/l6DKRf-fAAM) and [_But what is cross-entropy?_](https://youtu.be/GlYgs6v2YfU), derive entropy and cross-entropy from the limits of source coding. An [ngrok article](https://ngrok.com/blog/compression-is-prediction) follows the same mathematics through arithmetic coding and language models. [Salvatore Sanfilippo](https://www.youtube.com/watch?v=UgRiVUce9sY) asks how far the resulting identification between prediction and compression should be taken.
 
 These explanations meet at one fact. A probabilistic model assigns a conditional probability to every possible continuation, and an entropy coder converts the probability assigned to the observed continuation into bits. For a sequence $x_{1:n}$ and a model $Q$, the resulting ideal payload length is
 
@@ -20,10 +20,11 @@ up to the overhead introduced by the coding procedure. The quantity on the right
 
 I have spent the last few years working on compression, information theory, and compressed data structures and wanted to give my two cents. I agree with this equivalence, but I do not think it describes the complete compression problem. It applies after several choices have already been made. The encoder and decoder must agree on what kind of object is being represented, which alternatives remain possible, how the probability model is made available, and what the decoder must be able to do with the representation.
 
-Throughout this article, *compression* means lossless compression unless stated otherwise. Even within that scope, compression can be defined before introducing a sequential model. A finite family of admissible objects gives a counting lower bound without identifying a next symbol. A fixed or data-dependent code can later be interpreted probabilistically, and a distribution over serialized objects can be factored into next-symbol conditionals. That reinterpretation does not choose the family of objects, pay for information unavailable to the decoder, or enforce operations such as random access.
+Throughout this article, _compression_ means lossless compression unless stated otherwise. Even within that scope, compression can be defined before introducing a sequential model. A finite family of admissible objects gives a counting lower bound without identifying a next symbol. A fixed or data-dependent code can later be interpreted probabilistically, and a distribution over serialized objects can be factored into next-symbol conditionals. That reinterpretation does not choose the family of objects, pay for information unavailable to the decoder, or enforce operations such as random access.
 
 The question is therefore not whether prediction and compression can be made mathematically equivalent. They can. The question is what must be fixed before the equivalence applies, which part of a complete representation its bit count measures, and what remains outside that measurement.
 
+> **A note on level.** This article is a bit technical, it assumes familiarity with undergraduate mathematics and elementary proof-style arguments, but no prior background in information theory is really required, although it may help.
 
 ## Table of Contents
 
@@ -35,7 +36,7 @@ Whether this operation is lossless depends on what the representation is require
 
 This distinction precedes any probability model. Before asking how likely an object is, the encoder and decoder must agree on what counts as that object and when two decoded outputs count as equivalent. Only then does the length of a description become meaningful.
 
-Once an individual object $x$ has been fixed, the most permissive effective descriptions are programs that produce it. After choosing a universal machine $U$, the [Kolmogorov complexity](https://link.springer.com/book/10.1007/978-3-030-11298-1) of a binary string $x$ is
+Once an individual object $x$ has been fixed, the most permissive effective descriptions are programs that produce it. After choosing a universal machine $U$, the [Kolmogorov complexity](https://en.wikipedia.org/wiki/Kolmogorov_complexity) of a binary string $x$ is
 
 $$
 K_U(x) = \min \left\{ |p| : U(p)=x \right\}
@@ -77,7 +78,7 @@ $$
 \log_2|\mathcal{F}|
 $$
 
-is the *counting bound* of the family. In parts of the succinct data-structure literature, the same quantity is called its *worst-case entropy*. I will use *counting bound* because its derivation does not assume that the objects are sampled uniformly, or that they are sampled at all. It only counts the alternatives that the representation must distinguish.
+is the _counting bound_ of the family. In the literature on [succinct data structures](https://en.wikipedia.org/wiki/Succinct_data_structure), which studies representations whose space approaches information-theoretic lower bounds, the quantity $\log_2|\mathcal{F}|$ is sometimes called the _worst-case entropy_ of the family. I will use _counting bound_ because its derivation assumes neither a uniform distribution nor any sampling process. It only counts the alternatives that the representation must distinguish.
 
 The family $\mathcal{F}$ is part of the information shared by the encoder and decoder. If the decoder knows only that the object belongs to a larger family $\mathcal{G}$, then the representation must distinguish among the members of $\mathcal{G}$ instead. The lower bound becomes
 
@@ -152,6 +153,8 @@ $$
 
 The entropy $H(P)$ averages the real-valued lengths $-\log_2P(x)$ determined by the source. The expected code length $L_P(C)$ averages the integer lengths chosen by the encoder. To compare them, we must first determine which collections of integer lengths can belong to a decodable code.
 
+Now, a probability distribution suggests ideal code lengths, but not every assignment of integer lengths can belong to a decodable code. The Kraft–McMillan inequality characterizes the available coding budget. Once that constraint has been established, the connection can also be run in reverse: the lengths of any uniquely decodable code can be turned into probability weights.
+
 Assigning a different binary string to each object is sufficient when each codeword is presented in isolation. It is not sufficient when codewords are concatenated. A concatenated bitstream could admit two decompositions into codewords and therefore two possible source sequences. A code is [uniquely decodable](https://en.wikipedia.org/wiki/Variable-length_code) when every concatenation of its codewords has only one decomposition.
 
 A [prefix code](https://en.wikipedia.org/wiki/Prefix_code) guarantees this property by requiring that no codeword be a prefix of another. Its codewords can be placed at leaves of a binary tree. Each edge contributes one bit, and the depth of a leaf equals the length of its codeword.
@@ -175,6 +178,8 @@ $$
 $$
 
 This is the [Kraft–McMillan inequality](https://en.wikipedia.org/wiki/Kraft%E2%80%93McMillan_inequality). The tree argument proves it for prefix codes. The same inequality is necessary for every uniquely decodable code, even when its codewords do not form leaves of a prefix tree. Conversely, any collection of non-negative integer lengths satisfying the inequality can be realized by a prefix code.
+
+The diagram in [_Reinventing Entropy_](https://youtu.be/l6DKRf-fAAM?t=518) visualizes the prefix-code case of this inequality. A codeword of length $\ell$ excludes all of its descendants and therefore occupies a fraction $2^{-\ell}$ of the available binary coding space. The video uses this geometry to explain why assigning one symbol a shorter codeword leaves less space for the others; Kraft–McMillan makes the same constraint precise and extends it to every uniquely decodable code.
 
 The source probabilities satisfy a related identity. From the definition of information content,
 
@@ -285,7 +290,25 @@ $$
 
 Together, the lower bound and this construction give the one-symbol form of [Shannon’s Source Coding Theorem](https://en.wikipedia.org/wiki/Shannon%27s_source_coding_theorem). No uniquely decodable binary code has expected length below the entropy of a known source, while a prefix code can always remain within one bit of it.
 
-Encoding blocks of outcomes amortizes this rounding cost over several source symbols. As the block length increases, the additional cost per symbol can approach zero. Entropy is therefore the limiting expected number of bits required per outcome when the source distribution is known.
+For $r$ independent outcomes drawn from $P$, apply the same construction to the product distribution $P^r$. Its entropy is
+
+$$
+H(P^r)=rH(P)
+$$
+
+and a prefix code exists whose expected block length $L_r$ satisfies
+
+$$
+rH(P)\leq L_r<rH(P)+1.
+$$
+
+Dividing by $r$ gives
+
+$$
+H(P)\leq \frac{L_r}{r}<H(P)+\frac{1}{r}.
+$$
+
+The rounding overhead per source symbol therefore approaches zero as the block length grows. More generally, for dependent outcomes the same argument applies to their joint block distribution, with $H(P^r)$ replaced by the block entropy.
 
 Up to this point, each value $x\in\mathcal{X}$ has been treated as a complete object. The equivalence between code lengths and probability assignments is already present, but no next symbol has appeared. Prediction enters only after an object is represented as an ordered sequence and its probability is factored into conditional probabilities for the successive symbols.
 
@@ -394,14 +417,13 @@ plus a bounded coding overhead in the ideal arithmetic-coding model.
 
 Decoding repeats the same subdivisions. After recovering $x_{<i}$, the decoder evaluates the same distribution $Q(\cdot\mid x_{<i})$, partitions its interval in the same order, and determines which subinterval contains the encoded value. Encoder and decoder must begin from the same state, perform the same updates, use the same symbol ordering, and agree on where the sequence ends.
 
-This proves one direction of the equivalence. A sequential probabilistic model can be converted into a lossless compressor whose payload length follows the model’s log-loss. The [ngrok article](https://ngrok.com/blog/compression-is-prediction) and the two 3Blue1Brown videos ([*Reinventing Entropy*](https://youtu.be/l6DKRf-fAAM) and [*But what is cross-entropy?*](https://youtu.be/GlYgs6v2YfU)) explain this direction through entropy, cross-entropy, and conditional prediction.
+This proves one direction of the equivalence. A sequential probabilistic model can be converted into a lossless compressor whose payload length follows the model’s log-loss. The [ngrok article](https://ngrok.com/blog/compression-is-prediction) and the two 3Blue1Brown videos ([_Reinventing Entropy_](https://youtu.be/l6DKRf-fAAM) and [_But what is cross-entropy?_](https://youtu.be/GlYgs6v2YfU)) explain this direction through entropy, cross-entropy, and conditional prediction.
 
-The converse also holds. A uniquely decodable compressor assigns lengths to complete strings, and those lengths induce probability weights. After normalization, the resulting distribution can be factored into next-symbol conditionals. [*Language Modeling Is Compression*](https://arxiv.org/html/2309.10668v2) also constructs predictors directly from changes in compressed length when candidate symbols are appended to a prefix.
+The converse also holds. A uniquely decodable compressor assigns lengths to complete strings, and those lengths induce probability weights. After normalization, the resulting distribution can be factored into next-symbol conditionals. [_Language Modeling Is Compression_](https://arxiv.org/html/2309.10668v2) also constructs predictors directly from changes in compressed length when candidate symbols are appended to a prefix.
 
 The equivalence is therefore not limited to compressors explicitly implemented as a probability model followed by arithmetic coding. At a mathematical level, codes and probability assignments can be translated into one another. This generality also limits what the equivalence tells us. It applies after the possible objects, their serialization, and the information available to the decoder have been fixed. It does not determine any of them.
 
 The log-loss measures the data encoded under $Q$. It does not yet account for how $Q$ was chosen or how the decoder obtains it.
-
 
 ## The Source Is Unknown
 
@@ -409,7 +431,13 @@ The log-loss identity derived above measures the data under an already available
 
 This section reaches the resulting description length in two ways. Maximum likelihood gives the best in-sample log-loss within a fixed model family. Counting type classes gives nearly the same length without assuming that the sequence was sampled from that model. The lower-order gap is bounded by the information needed to identify the fitted type.
 
-Consider first the family of zero-order models, which use the same distribution at every position and ignore the preceding symbols. Let $q(a)$ be the probability assigned to a symbol $a\in\Sigma$. The model assigns the complete sequence the probability
+Let
+
+$$
+S=s_1,\ldots,s_n\in\Sigma^n,\qquad n\geq 1
+$$
+
+be the observed sequence. Consider first the family of zero-order models, which use the same distribution at every position and ignore the preceding symbols. Let $q(a)$ be the probability assigned to a symbol $a\in\Sigma$. The model assigns the complete sequence the probability
 
 $$
 q(S) = \prod_{i=1}^n q(s_i)
@@ -442,13 +470,13 @@ $$
 \end{aligned}
 $$
 
-where
+Under the empirical distribution, the probability assigned to the complete sequence is
 
 $$
 \widehat{P}_S(S) := \prod_{i=1}^n \widehat{P}_S(s_i)
 $$
 
-The loss obtained from the empirical distribution is
+Its logarithmic loss is
 
 $$
 -\log_2\widehat{P}_S(S) = n\sum_{a\in\Sigma} \widehat{P}_S(a) \log_2 \frac{1}{\widehat{P}_S(a)}
@@ -486,7 +514,7 @@ $$
 
 Unlike Shannon entropy, $\mathcal{H}_0(S)$ is not defined from a source distribution that exists independently of the data. It is a property of the individual sequence $S$, obtained by fitting a zero-order model to its observed symbol frequencies. It does not assert that the sequence was generated by independent draws from that distribution.
 
-The same quantity can be reached without beginning from a probabilistic model. Consider a bitvector $B$ of length $n$ containing exactly $m$ ones. If the decoder knows $n$ and $m$, then $B$ belongs to the family
+A closely related description length can be obtained without beginning from a probabilistic model. More precisely, the counting argument recovers the same leading term, with a logarithmic difference that we will bound explicitly. Consider a binary string $B$ of length $n$ containing exactly $m$ ones. If the decoder knows $n$ and $m$, then $B$ belongs to the family
 
 $$
 \mathcal{B}_{n,m} = \left\{ B\in\{0,1\}^n : B\text{ contains exactly }m\text{ ones} \right\}
@@ -512,7 +540,7 @@ $$
 p=\frac{m}{n}
 $$
 
-The endpoint cases $m=0$ and $m=n$ contain only one bitvector and have both counting bound and empirical entropy equal to zero. Under the zero-order model that assigns probability $p$ to a one, every member of $\mathcal{B}_{n,m} receives the same probability:
+The endpoint cases $m=0$ and $m=n$ contain only one binary string and have both counting bound and empirical entropy equal to zero. Under the zero-order model that assigns probability $p$ to a one, every member of $\mathcal{B}_{n,m}$ receives the same probability:
 
 $$
 \begin{aligned}
@@ -563,7 +591,7 @@ $$
 n\mathcal{H}_0(B) - \log_2(n+1) \leq \log_2\binom{n}{m} \leq n\mathcal{H}_0(B)
 $$
 
-The counting bound and the best zero-order log-loss differ by at most $\log_2(n+1)$ bits. The counting argument conditions on the value of $m$ and distinguishes the bitvectors that remain possible. The probabilistic argument distributes probability across bitvectors with every possible number of ones, then evaluates $B$ under the model fitted from its own count.
+The counting bound and the best zero-order log-loss differ by at most $\log_2(n+1)$ bits. The counting argument conditions on $m$ and distinguishes the binary strings that remain possible. The probabilistic argument distributes probability across binary strings with every possible number of ones, then evaluates $B$ under the model fitted from its own count.
 
 If $n$ is known but $m$ is not, the value of $m$ must also be represented. There are $n+1$ possible values, so a fixed-width representation uses
 
@@ -654,17 +682,19 @@ $$
 0 \leq \Delta(S) \leq |\Sigma|\log_2(n+1)
 $$
 
-For a fixed alphabet, this gives
+For a fixed alphabet, the previous bound says simply that
 
 $$
-\log_2 \frac{n!}{\prod_{a\in\Sigma}n_a!} = n\mathcal{H}_0(S) - O(\log n)
+\Delta(S)=O(\log n).
 $$
+
+Thus the type-class description and the maximum-likelihood zero-order log-loss have the same linear term, while their difference grows at most logarithmically.
 
 The two constructions condition on the same empirical information in different ways. The counting argument first fixes the composition and then counts the sequences that remain possible. The probabilistic argument fits the maximum-likelihood zero-order distribution and evaluates the observed sequence under it. Their difference is bounded by the information needed to identify the type.
 
 Both quantities depend only on the composition of $S$. Reordering the symbols leaves every $n_a$ unchanged and therefore leaves both the type class and $\mathcal{H}_0(S)$ unchanged. A zero-order model assigns the same probability to a symbol wherever it occurs, even when the preceding symbols make some continuations more likely than others.
 
-Assume $n\geq 1$ and $0\leq k<n$. To introduce context without assuming a known source, group positions according to the symbols that precede them. Fix a context length $k$. For $a\in\Sigma$ and $\omega\in\Sigma^k$, define
+Fix a context length $0\leq k<n$. To introduce context without assuming a known source, group positions according to the symbols that precede them. For $a\in\Sigma$ and $\omega\in\Sigma^k$, define
 
 $$
 n_{\omega a} = \left| \left\{ i\in\{k+1,\ldots,n\} : s_{i-k:i-1}=\omega,\ s_i=a \right\} \right|
@@ -732,7 +762,6 @@ This always occurs at $k=n-1$, where only one position has a complete context, a
 
 The value $\mathcal{H}_k(S)=0$ does not give a zero-length lossless representation of $S$. It gives a zero data term after the fitted context distributions are available. A decoder can assign probability one to an observed continuation only if it already knows which continuation followed that context. As the empirical loss decreases, information may have moved from the encoded sequence into the fitted model. The complete description must account for how the decoder obtains that model.
 
-
 ## The Model Is Part of the Message
 
 That missing information is the model itself.
@@ -782,11 +811,11 @@ $$
 
 Each term is the expected number of additional bits paid at one position because the model’s conditional distribution differs from the source distribution.
 
-This distinction matters when discussing whether a better predictor “reduces entropy.” For a fixed source $P$, improving $Q$ under expected logarithmic loss means reducing the cross-entropy $H(P,Q)$, equivalently reducing the mismatch term $D_{\mathrm{KL}}(P\mathbin\Vert Q)$. It does not change $H(P)$. The [ngrok article](https://ngrok.com/blog/compression-is-prediction) correctly associates better probability estimates with shorter encodings, but its final use of *entropy* merges these two quantities.
+This distinction matters when discussing whether a better predictor “reduces entropy.” For a fixed source $P$, improving $Q$ under expected logarithmic loss means reducing the cross-entropy $H(P,Q)$, equivalently reducing the mismatch term $D_{\mathrm{KL}}(P\mathbin\Vert Q)$. It does not change $H(P)$. The [ngrok article](https://ngrok.com/blog/compression-is-prediction) correctly associates better probability estimates with shorter encodings, but its final use of _entropy_ merges these two quantities.
 
 Whether $L(M)$ belongs to each transmitted file depends on the accounting boundary. If the model is fixed by a file format, built into the decoder, or otherwise shared in advance, it does not belong to the conditional description length of an individual message. It remains part of the system that makes that description meaningful, but charging its complete size to every message would also be misleading.
 
-In an offline two-part code, if the fitted model is not already available to the decoder, a description of its tables, parameters, or weights must accompany the encoded data. [*Language Modeling Is Compression*](https://arxiv.org/html/2309.10668v2#S3.SS2) calls the ratio obtained without parameter size the *raw compression rate*. Its *adjusted compression rate* adds the parameter size to the compressed output. A larger model may obtain a lower log-loss while producing a worse adjusted rate when it is amortized over too little data.
+In an offline two-part code, if the fitted model is not already available to the decoder, a description of its tables, parameters, or weights must accompany the encoded data. [_Language Modeling Is Compression_](https://arxiv.org/html/2309.10668v2#S3.SS2) calls the ratio obtained without parameter size the _raw compression rate_. Its _adjusted compression rate_ adds the parameter size to the compressed output. A larger model may obtain a lower log-loss while producing a worse adjusted rate when it is amortized over too little data.
 
 A third option is prequential or online coding. Encoder and decoder begin from the same initial state. Let $Q_{i-1}$ be the model available after the prefix $s_{<i}$ has been processed. The ideal prequential length is
 
@@ -852,16 +881,27 @@ The operation need not be random access, and the object need not be a vector. Th
 
 Bitstream length alone answers only the bare reconstruction problem. A compressed representation must also encode enough structure for its required operations. The decoder contract now has three explicit parts: the objects it must distinguish, the information it already shares with the encoder, and the operations it must perform without full reconstruction. Prediction determines conditional code lengths inside this contract. It does not determine the contract itself.
 
-
 ## So, Is Compression Prediction?
 
-The two 3Blue1Brown videos ([*Reinventing Entropy*](https://youtu.be/l6DKRf-fAAM) and [*But what is cross-entropy?*](https://youtu.be/GlYgs6v2YfU)) derive the connection between coding, entropy, and cross-entropy. The [ngrok article](https://ngrok.com/blog/compression-is-prediction) shows how a model supplies conditional probabilities and arithmetic coding turns them into a bitstream. [Salvatore Sanfilippo](https://youtu.be/UgRiVUce9sY) asks whether this makes prediction and compression the same concept. [*Language Modeling Is Compression*](https://arxiv.org/html/2309.10668v2) studies both directions of the equivalence and explicitly accounts for model parameters through raw, adjusted, and prequential compression rates.
+The two 3Blue1Brown videos ([_Reinventing Entropy_](https://youtu.be/l6DKRf-fAAM) and [_But what is cross-entropy?_](https://youtu.be/GlYgs6v2YfU)) derive the connection between coding, entropy, and cross-entropy. The [ngrok article](https://ngrok.com/blog/compression-is-prediction) shows how a model supplies conditional probabilities and arithmetic coding turns them into a bitstream. [Salvatore Sanfilippo](https://youtu.be/UgRiVUce9sY) asks whether this makes prediction and compression the same concept. [_Language Modeling Is Compression_](https://arxiv.org/html/2309.10668v2) studies both directions of the equivalence and explicitly accounts for model parameters through raw, adjusted, and prequential compression rates.
 
 Kolmogorov complexity makes this visible for an individual string, while the counting bound makes it visible for a finite family: a description-length problem can be posed before a next-symbol predictor exists.
 
 What I felt these explanations left implicit was the compression problem that must be fixed before the equivalence becomes meaningful. The encoder and decoder need an agreed family of objects, a serialization, a boundary between transmitted and shared information, and a decoding contract. None of these choices is determined by next-symbol prediction.
 
-Once those choices have been made, the equivalence is broad. A sequential probability model assigns ideal payload lengths through logarithmic loss. In the other direction, a uniquely decodable code induces probability weights, and a distribution over serialized objects can be factored into next-symbol conditionals. More precisely, every uniquely decodable code over a fixed object family induces a distribution $Q_C$. Its codeword lengths equal $-\log_2 Q_C$ plus the constant contribution of its Kraft slack. Once the objects have been serialized, $Q_C$ can be factored into next-symbol conditionals.
+Once those choices have been made, the equivalence is broad. A sequential probability model assigns ideal payload lengths through logarithmic loss. Conversely, every uniquely decodable code over a fixed object family induces the distribution
+
+$$
+Q_C(x)=\frac{2^{-\ell_C(x)}}{S_C},
+$$
+
+and its lengths satisfy
+
+$$
+\ell_C(x)=-\log_2Q_C(x)-\log_2S_C.
+$$
+
+After the objects have been serialized, the induced distribution can in turn be factored into next-symbol conditionals.
 
 That generality is also the limit of the slogan _Compression is Prediction_. Recasting a representation probabilistically does not explain why its objects were chosen, whether its model must be transmitted, or which operations it supports. A model with lower log-loss can produce a larger complete file after its parameters are included. An entropy-coded stream can use fewer bits than a bit-packed vector while failing to provide constant-time access. An empirical entropy of zero can still leave the decoder without the model needed to reconstruct the sequence.
 
