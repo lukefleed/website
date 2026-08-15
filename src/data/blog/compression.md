@@ -18,6 +18,8 @@ $$
 
 up to the overhead introduced by the coding procedure. The quantity on the right is also the model’s cumulative logarithmic loss. In this setting, improving prediction under log-loss and reducing the encoded payload are the same optimization problem.
 
+None of the underlying correspondence is new. Its foundations belong to classical information theory: [Shannon](https://people.math.harvard.edu/~ctm/home/text/others/shannon/entropy/entropy.pdf) connected probability to optimal code length, adaptive statistical compressors turned conditional estimates into codes long before modern language models, and the relation between learning and compression has been developed through [minimum description length](https://en.wikipedia.org/wiki/Minimum_description_length), [MacKay’s](https://www.inference.org.uk/mackay/itila/book.html) treatment of information theory and inference, and work such as the [Hutter Prize](https://prize.hutter1.net/). Recent language-model results just instantiate this older correspondence at a new scale.
+
 I have spent the last few years working on compression, information theory, and compressed data structures and wanted to give my two cents. I agree with this equivalence, but I do not think it describes the complete compression problem. It applies after several choices have already been made. The encoder and decoder must agree on what kind of object is being represented, which alternatives remain possible, how the probability model is made available, and what the decoder must be able to do with the representation.
 
 Throughout this article, _compression_ means lossless compression unless stated otherwise. Even within that scope, compression can be defined before introducing a sequential model. A finite family of admissible objects gives a counting lower bound without identifying a next symbol. A fixed or data-dependent code can later be interpreted probabilistically, and a distribution over serialized objects can be factored into next-symbol conditionals. That reinterpretation does not choose the family of objects, pay for information unavailable to the decoder, or enforce operations such as random access.
@@ -332,7 +334,7 @@ $$
 P(x_{1:n}) = \prod_{i=1}^n P(x_i\mid x_{<i})
 $$
 
-No independence assumption is involved. Each conditional distribution may depend on the complete prefix.
+No independence assumption is involved. Each conditional distribution may depend on the complete prefix. Here, “next” means next in the agreed serialization, not necessarily later in physical time. The sequence may already be completely available to the encoder, prediction refers to the conditional probability assignment used to encode each successive symbol.
 
 Applying $-\log_2$ turns the product into a sum:
 
@@ -813,6 +815,14 @@ Each term is the expected number of additional bits paid at one position because
 
 This distinction matters when discussing whether a better predictor “reduces entropy.” For a fixed source $P$, improving $Q$ under expected logarithmic loss means reducing the cross-entropy $H(P,Q)$, equivalently reducing the mismatch term $D_{\mathrm{KL}}(P\mathbin\Vert Q)$. It does not change $H(P)$. The [ngrok article](https://ngrok.com/blog/compression-is-prediction) correctly associates better probability estimates with shorter encodings, but its final use of _entropy_ merges these two quantities.
 
+The distribution under which the code is evaluated also matters. If a model $Q_S$ is fitted to an observed sequence $S$, minimizing its in-sample log-loss does not imply that it minimizes log-loss on future data. For a future evaluation distribution $R$,
+
+$$
+\mathbb{E}_{X\sim R}\left[-\log_2 Q_S(X)\right] = H(R)+D_{\mathrm{KL}}(R\mathbin\Vert Q_S).
+$$
+
+A model may therefore compress the training sequence more tightly while assigning worse probabilities to future observations, either because it has overfit the sample or because the source distribution has changed. Compression length and prediction log-loss remain the same quantity when evaluated on the same sequence or distribution; generalization from one distribution to another is a separate problem.
+
 Whether $L(M)$ belongs to each transmitted file depends on the accounting boundary. If the model is fixed by a file format, built into the decoder, or otherwise shared in advance, it does not belong to the conditional description length of an individual message. It remains part of the system that makes that description meaningful, but charging its complete size to every message would also be misleading.
 
 In an offline two-part code, if the fitted model is not already available to the decoder, a description of its tables, parameters, or weights must accompany the encoded data. [_Language Modeling Is Compression_](https://arxiv.org/html/2309.10668v2#S3.SS2) calls the ratio obtained without parameter size the _raw compression rate_. Its _adjusted compression rate_ adds the parameter size to the compressed output. A larger model may obtain a lower log-loss while producing a worse adjusted rate when it is amortized over too little data.
@@ -906,3 +916,4 @@ After the objects have been serialized, the induced distribution can in turn be 
 That generality is also the limit of the slogan _Compression is Prediction_. Recasting a representation probabilistically does not explain why its objects were chosen, whether its model must be transmitted, or which operations it supports. A model with lower log-loss can produce a larger complete file after its parameters are included. An entropy-coded stream can use fewer bits than a bit-packed vector while failing to provide constant-time access. An empirical entropy of zero can still leave the decoder without the model needed to reconstruct the sequence.
 
 Compression is therefore prediction _after_ the coding problem has been fixed, and only at the level measured by the induced code lengths. For a shared sequential model under logarithmic loss, cumulative prediction error gives the ideal payload length up to coding overhead. It does not define what must be represented, what the decoder already knows, or what the representation must allow the decoder to do.
+, they definitley do not create it.
