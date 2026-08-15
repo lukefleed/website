@@ -1,7 +1,7 @@
 ---
 author: Luca Lombardo
 pubDatetime: 2026-08-15T00:00:00Z
-title: Is Compression Really Prediction?
+title: In What Sense Is Compression Prediction?
 slug: compression
 featured: false
 draft: false
@@ -20,11 +20,11 @@ up to the overhead introduced by the coding procedure. The quantity on the right
 
 None of the underlying correspondence is new. Its foundations belong to classical information theory: [Shannon](https://people.math.harvard.edu/~ctm/home/text/others/shannon/entropy/entropy.pdf) connected probability to optimal code length, adaptive statistical compressors turned conditional estimates into codes long before modern language models, and the relation between learning and compression has been developed through [minimum description length](https://en.wikipedia.org/wiki/Minimum_description_length), [MacKay’s](https://www.inference.org.uk/mackay/itila/book.html) treatment of information theory and inference, and work such as the [Hutter Prize](https://prize.hutter1.net/). Recent language-model results just instantiate this older correspondence at a new scale.
 
-I have spent the last few years working on compression, information theory, and compressed data structures and wanted to give my two cents. I agree with this equivalence, but I do not think it describes the complete compression problem. It applies after several choices have already been made. The encoder and decoder must agree on what kind of object is being represented, which alternatives remain possible, how the probability model is made available, and what the decoder must be able to do with the representation.
+I have spent the last few years working on compression, information theory, and compressed data structures and wanted to give my two cents. I agree with the equivalence. What interests me is where it begins and where it ends. It describes the cost of encoding data under an agreed model, but a compression problem starts before that model can be applied and does not always end when the shortest bitstream has been produced. The encoder and decoder must agree on what kind of object is being represented, which alternatives remain possible, how the probability model is made available, and what the decoder must be able to do with the representation.
 
 Throughout this article, _compression_ means lossless compression unless stated otherwise. Even within that scope, compression can be defined before introducing a sequential model. A finite family of admissible objects gives a counting lower bound without identifying a next symbol. A fixed or data-dependent code can later be interpreted probabilistically, and a distribution over serialized objects can be factored into next-symbol conditionals. That reinterpretation does not choose the family of objects, pay for information unavailable to the decoder, or enforce operations such as random access.
 
-The question is therefore not whether prediction and compression can be made mathematically equivalent. They can. The question is what must be fixed before the equivalence applies, which part of a complete representation its bit count measures, and what remains outside that measurement.
+The question is therefore not whether prediction and compression can be made mathematically equivalent. They can. The question is how much of the compression problem that equivalence actually captures: what must be fixed before it applies, which part of a complete representation its bit count measures, and what remains outside that measurement.
 
 > **A note on level.** This article is a bit technical, it assumes familiarity with undergraduate mathematics and elementary proof-style arguments, but no prior background in information theory is really required, although it may help.
 
