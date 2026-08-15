@@ -1,6 +1,6 @@
 ---
 author: Luca Lombardo
-pubDatetime: 2026-08-14T00:00:00Z
+pubDatetime: 2026-08-15T00:00:00Z
 title: Is Compression Really Prediction?
 slug: compression
 featured: false
