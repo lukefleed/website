@@ -899,7 +899,7 @@ Kolmogorov complexity makes this visible for an individual string, while the cou
 
 What I felt these explanations left implicit was the compression problem that must be fixed before the equivalence becomes meaningful. The encoder and decoder need an agreed family of objects, a serialization, a boundary between transmitted and shared information, and a decoding contract. None of these choices is determined by next-symbol prediction.
 
-Once those choices have been made, the equivalence is broad. A sequential probability model assigns ideal payload lengths through logarithmic loss. Conversely, every uniquely decodable code over a fixed object family induces the distribution
+Once those choices have been made, a sequential probability model assigns ideal payload lengths through logarithmic loss. Conversely, every uniquely decodable code over a fixed object family induces the distribution
 
 $$
 Q_C(x)=\frac{2^{-\ell_C(x)}}{S_C},
