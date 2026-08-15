@@ -1,7 +1,7 @@
 ---
 author: Luca Lombardo
 pubDatetime: 2026-08-15T00:00:00Z
-title: In What Sense Is Compression Prediction?
+title: How Compression is Prediction?
 slug: compression
 featured: false
 draft: false
