@@ -805,7 +805,7 @@ A bit-packed vector and an entropy-coded stream make this difference concrete.
 Nothing in this factorization requires the sequence order to represent physical time.
 Consider a vector
 
-> I have implemented both bit-packed and entropy-coded representations of a vector in Rust, you can have a look [here](https://crates.io/crates/compressed-intvec)
+> I have implemented both bit-packed and entropy-coded representations of a vector in Rust, you can have a look [here](https://github.com/lukefleed/compressed-intvec)
 
 $$
 A=(a_0,\ldots,a_{n-1})
