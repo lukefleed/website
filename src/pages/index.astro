@@ -29,51 +29,59 @@ const recentBlogPosts = sortedPosts;
       <h1 class="my-4 inline-block text-4xl font-bold sm:my-8 sm:text-5xl">
         About Me🖖
       </h1>
-      <a
-        target="_blank"
-        href="/rss.xml"
-        class="inline-block"
-        aria-label="rss feed"
-        title="RSS Feed"
-      >
-        <IconRss
-          width={20}
-          height={20}
-          class="scale-125 stroke-accent stroke-3 rtl:-rotate-90"
-        />
-        <span class="sr-only">RSS Feed</span>
-      </a>
 
-      <p class="mb-4">
-        <span class="text-accent">❯</span>
+      <p class="mb-2.5! min-h-[2lh]">
+        <span class="text-accent">❯</span>{" "}
         <span id="typewriter"></span><span id="cursor" class="animate-pulse"
           >|</span
         >
       </p>
 
-      <p class="mb-3">
-        I hold a Bachelor's Degree in Mathematics and a Master's Degree in
-        Computer Science from the University of Pisa, Italy, where I was also an
-        active member of <a
-          href="https://phc.dm.unipi.it/"
+      <p class="mb-3 flow-root sm:pr-3">
+        I work as a software engineer at <a
+          href="https://www.onechronos.com/"
           target="_blank"
           rel="noopener noreferrer"
-          class="text-accent underline">PHC</a
-        >. My main interests include:
+          class="text-accent underline">OneChronos</a
+        >, based in Amsterdam. Over the past few years, I've written almost
+        exclusively <a
+          href="https://www.rust-lang.org/"
+          class="text-accent underline">Rust</a
+        > code, in all sorts of flavours. I'm also interested in formal methods and
+        theorem proving, and occasionally write code in{" "}
+        <a href="https://lean-lang.org/" class="text-accent underline">Lean</a>.
       </p>
 
+      <p class="mb-3">My main interests include:</p>
       <ul class="mb-6 list-none space-y-1 pl-4">
-        <!-- <li class="mb-1">📙 Succinct data structures</li> -->
         <li>📕 Algorithms and data structures</li>
         <li>📗 High-performance computing</li>
         <li>📘 Rust and low-level code optimization</li>
       </ul>
+
+      <p class="mb-3">
+        Away from the keyboard, I'm probably out running (preferably on trails),
+        climbing, mountaineering, or finding another outdoor sport to try.
+      </p>
 
       <div class="mt-6 space-y-3">
         <p
           class="font-mono text-xs font-semibold tracking-wider text-foreground/75 uppercase"
         >
           Research & Selected Work
+        </p>
+        <p>
+          During university, I did some research on algorithms, <a
+            href="https://en.wikipedia.org/wiki/Succinct_data_structure"
+            class="text-accent underline">succinct data structures</a
+          >, and high-performance computing. I did my bachelor's degree in
+          mathematics and my master's degree in computer science at the
+          University of Pisa, where I was also an active member of <a
+            href="https://phc.dm.unipi.it/"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="text-accent underline">PHC</a
+          >. Here are a few selected works from that time:
         </p>
         <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <ThesisLink
@@ -114,7 +122,23 @@ const recentBlogPosts = sortedPosts;
     {
       recentBlogPosts.length > 0 && (
         <section id="recent-posts" class="pt-12 pb-6">
-          <h2 class="text-2xl font-semibold tracking-wide">Recent Posts</h2>
+          <div class="flex items-center gap-3">
+            <h2 class="text-2xl font-semibold tracking-wide">Recent Posts</h2>
+            <a
+              target="_blank"
+              href="/rss.xml"
+              class="inline-block"
+              aria-label="rss feed"
+              title="RSS Feed"
+            >
+              <IconRss
+                width={20}
+                height={20}
+                class="scale-125 stroke-accent stroke-3 rtl:-rotate-90"
+              />
+              <span class="sr-only">RSS Feed</span>
+            </a>
+          </div>
           <ul>
             {recentBlogPosts.map(
               (data, index: number) =>

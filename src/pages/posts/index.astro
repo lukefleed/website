@@ -13,7 +13,10 @@ const sortedPosts = getSortedPosts(posts);
 const INITIAL_VISIBLE = 5;
 ---
 
-<Layout title={`Posts | ${SITE.title}`}>
+<Layout
+  title={`Posts | ${SITE.title}`}
+  description="Articles by Luca Lombardo on Rust, algorithms, data structures, and high-performance computing."
+>
   <Header />
   <Main pageTitle="Posts" pageDesc="All the articles I've posted.">
     <ul>

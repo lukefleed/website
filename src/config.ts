@@ -1,10 +1,10 @@
 export const SITE = {
-  website: "https://lukefleed.xyz", // replace this with your deployed domain
+  website: "https://lukefleed.xyz",
   author: "Luca Lombardo",
   profile: "https://lukefleed.xyz/",
-  desc: "A minimal, responsive and SEO-friendly Astro blog theme.",
+  desc: "Luca Lombardo, software engineer at OneChronos. Writing about Rust, algorithms, and high-performance computing.",
   title: "Luca Lombardo",
-  ogImage: "astropaper-og.jpg",
+  ogImage: "og.png",
   lightAndDarkMode: true,
   postPerIndex: 4,
   postPerPage: 4,
@@ -14,7 +14,7 @@ export const SITE = {
   editPost: {
     enabled: false,
     text: "Edit page",
-    url: "https://github.com/satnaing/astro-paper/edit/main/",
+    url: "https://github.com/lukefleed/website/edit/main/",
   },
   dynamicOgImage: true,
   dir: "ltr", // "rtl" | "auto"

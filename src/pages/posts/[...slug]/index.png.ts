@@ -3,14 +3,15 @@ import { getCollection, type CollectionEntry } from "astro:content";
 import { getPath } from "@/utils/getPath";
 import { generateOgImageForPost } from "@/utils/generateOgImages";
 import { SITE } from "@/config";
+import postFilter from "@/utils/postFilter";
 
 export async function getStaticPaths() {
   if (!SITE.dynamicOgImage) {
     return [];
   }
 
-  const posts = await getCollection("blog").then(p =>
-    p.filter(({ data }) => !data.draft && !data.ogImage)
+  const posts = await getCollection("blog", postFilter).then(p =>
+    p.filter(({ data }) => !data.ogImage)
   );
 
   return posts.map(post => ({
