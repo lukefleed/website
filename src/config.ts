@@ -2,7 +2,7 @@ export const SITE = {
   website: "https://lukefleed.xyz",
   author: "Luca Lombardo",
   profile: "https://lukefleed.xyz/",
-  desc: "Luca Lombardo, software engineer at OneChronos. Writing about Rust, algorithms, and high-performance computing.",
+  desc: "A mathematician who turned to the dark side of computer science.",
   title: "Luca Lombardo",
   ogImage: "og.png",
   lightAndDarkMode: true,
